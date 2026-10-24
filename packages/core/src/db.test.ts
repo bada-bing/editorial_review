@@ -22,25 +22,25 @@ describe("text_state", () => {
     assert.deepEqual(s.waitsOn, [{ actor: { connection: 1 }, role: "writer" }]);
   });
 
-  it("is in review while a review of the latest draft is open", () => {
+  it("is in review from the first draft, waiting on me", () => {
     const db = setup();
     db.prepare("INSERT INTO draft (text_id, version, origin, content) VALUES (1, 1, 'submitted', 'a')").run();
-    db.prepare("INSERT INTO review (draft_id) VALUES (1)").run();
     const s = getState(db, 1)!;
     assert.equal(s.state, "in review");
     assert.equal(s.latestVersion, 1);
     assert.deepEqual(s.waitsOn, [{ actor: "me", role: "reviewer" }]);
   });
 
-  it("is drafting again once every review is submitted", () => {
+  it("is drafting again once I have submitted my review and no requested one is open", () => {
     const db = setup();
     db.prepare("INSERT INTO draft (text_id, version, origin, content) VALUES (1, 1, 'submitted', 'a')").run();
-    db.prepare("INSERT INTO review (draft_id) VALUES (1)").run();
     db.prepare("INSERT INTO review (draft_id, reviewer_connection_id) VALUES (1, 1)").run();
-    db.prepare("UPDATE review SET submitted_at = 'now' WHERE reviewer_connection_id IS NULL").run();
+    assert.deepEqual(getState(db, 1)!.waitsOn, [{ actor: "me", role: "reviewer" }, { actor: { connection: 1 }, role: "reviewer" }]);
+    db.prepare("INSERT INTO review (draft_id, submitted_at) VALUES (1, 'now')").run();
     assert.deepEqual(getState(db, 1)!.waitsOn, [{ actor: { connection: 1 }, role: "reviewer" }]);
     db.prepare("UPDATE review SET submitted_at = 'now'").run();
     assert.equal(getState(db, 1)!.state, "drafting");
+    assert.deepEqual(getState(db, 1)!.waitsOn, [{ actor: { connection: 1 }, role: "writer" }]);
   });
 
   it("is approved once the text points at a draft, waiting on nobody", () => {
@@ -55,14 +55,14 @@ describe("text_state", () => {
   it("refuses a second review by the same reviewer of one draft, me included", () => {
     const db = setup();
     db.prepare("INSERT INTO draft (text_id, version, origin, content) VALUES (1, 1, 'submitted', 'a')").run();
-    db.prepare("INSERT INTO review (draft_id) VALUES (1)").run();
-    assert.throws(() => db.prepare("INSERT INTO review (draft_id) VALUES (1)").run());
+    db.prepare("INSERT INTO review (draft_id, submitted_at) VALUES (1, 'now')").run();
+    assert.throws(() => db.prepare("INSERT INTO review (draft_id, submitted_at) VALUES (1, 'now')").run());
   });
 
   it("deletes a text's drafts, reviews and comments with it", () => {
     const db = setup();
     db.prepare("INSERT INTO draft (text_id, version, origin, content) VALUES (1, 1, 'submitted', 'a')").run();
-    db.prepare("INSERT INTO review (draft_id) VALUES (1)").run();
+    db.prepare("INSERT INTO review (draft_id, submitted_at) VALUES (1, 'now')").run();
     db.prepare("INSERT INTO comment (draft_id, author, line, content) VALUES (1, 'miki', 1, 'c')").run();
     db.prepare("INSERT INTO comment (draft_id, author, parent_id, content) VALUES (1, 'writer', 1, 'r')").run();
     db.prepare("DELETE FROM text WHERE id = 1").run();

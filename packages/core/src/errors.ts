@@ -13,3 +13,23 @@ export class NotFound extends CoreError {
     super("NotFound", `no ${what} with id ${id}`);
   }
 }
+
+/** The text is not in the state the action needs. */
+export class NotYourTurn extends CoreError {
+  constructor(action: string, state: string) {
+    super("NotYourTurn", `cannot ${action} while the text is ${state}`);
+  }
+}
+
+export class TextApproved extends CoreError {
+  constructor(id: number) {
+    super("TextApproved", `text ${id} is approved and accepts no change`);
+  }
+}
+
+/** A requested review is still open, so the draft it reads must not change. */
+export class ReviewRunning extends CoreError {
+  constructor(id: number) {
+    super("ReviewRunning", `a review of text ${id} is still running`);
+  }
+}

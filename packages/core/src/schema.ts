@@ -37,8 +37,9 @@ CREATE TABLE IF NOT EXISTS review (
   submitted_at           TEXT
 );
 
--- One review per reviewer and draft. NULLs are distinct to UNIQUE, so mine is
--- indexed on its own.
+-- One review per reviewer and draft. Mine is recorded when I submit it; a
+-- requested one is open from the request. NULLs are distinct to UNIQUE, so
+-- mine is indexed on its own.
 CREATE UNIQUE INDEX IF NOT EXISTS review_once
   ON review (draft_id, reviewer_connection_id);
 CREATE UNIQUE INDEX IF NOT EXISTS review_once_mine
@@ -63,8 +64,9 @@ WHERE d.version = (SELECT MAX(version) FROM draft WHERE text_id = d.text_id);
 
 -- One row per text: its latest version and its state.
 --   approved   it points to an approved draft
---   in review  a review of the latest draft is still open
---   drafting   otherwise, including before the first draft
+--   in review  it has a draft, and I have not submitted my review of the
+--              latest one, or a requested review of it is still open
+--   drafting   otherwise: before the first draft, and after I submit my review
 CREATE VIEW IF NOT EXISTS text_state AS
 SELECT t.id AS text_id,
        t.scenario,
@@ -74,22 +76,34 @@ SELECT t.id AS text_id,
        l.version AS latest_version,
        CASE
          WHEN t.approved_draft_id IS NOT NULL THEN 'approved'
+         WHEN l.id IS NULL THEN 'drafting'
          WHEN EXISTS (SELECT 1 FROM review r
                       WHERE r.draft_id = l.id AND r.submitted_at IS NULL) THEN 'in review'
-         ELSE 'drafting'
+         WHEN EXISTS (SELECT 1 FROM review r
+                      WHERE r.draft_id = l.id AND r.reviewer_connection_id IS NULL
+                        AND r.submitted_at IS NOT NULL) THEN 'drafting'
+         ELSE 'in review'
        END AS state
 FROM text t
 LEFT JOIN latest_draft l ON l.text_id = t.id;
 
--- Who each text waits on: the writer while drafting, every open reviewer while
--- in review, nobody once approved. NULL is me.
+-- Who each text waits on: the writer while drafting; while in review, me until
+-- I submit my review, and every requested reviewer whose review is open;
+-- nobody once approved. NULL is me.
 CREATE VIEW IF NOT EXISTS text_waits_on AS
 SELECT s.text_id, s.writer_connection_id AS connection_id, 'writer' AS role
 FROM text_state s
 WHERE s.state = 'drafting'
 UNION ALL
+SELECT s.text_id, NULL, 'reviewer'
+FROM text_state s
+WHERE s.state = 'in review'
+  AND NOT EXISTS (SELECT 1 FROM review r
+                  WHERE r.draft_id = s.latest_draft_id AND r.reviewer_connection_id IS NULL
+                    AND r.submitted_at IS NOT NULL)
+UNION ALL
 SELECT s.text_id, r.reviewer_connection_id, 'reviewer'
 FROM text_state s
 JOIN review r ON r.draft_id = s.latest_draft_id AND r.submitted_at IS NULL
-WHERE s.state = 'in review';
+WHERE s.state = 'in review' AND r.reviewer_connection_id IS NOT NULL;
 `;
