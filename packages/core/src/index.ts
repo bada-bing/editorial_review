@@ -1,2 +1,4 @@
-export { openDatabase, getState } from "./db.ts";
-export type { Actor, ConnectionId, State, TextId, TextState } from "./db.ts";
+export { openDatabase } from "./db.ts";
+export { Core } from "./core.ts";
+export type { Actor, ConnectionId, Context, State, TextId, TextState } from "./core.ts";
+export { CoreError, NotFound } from "./errors.ts";

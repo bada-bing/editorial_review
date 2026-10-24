@@ -1,6 +1,11 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
-import { getState, openDatabase } from "./db.ts";
+import { Core } from "./core.ts";
+import { openDatabase } from "./db.ts";
+
+const getState = (db: ReturnType<typeof openDatabase>, id: number) => {
+  try { return new Core(db).getText(id); } catch { return undefined; }
+};
 
 const setup = () => {
   const db = openDatabase(":memory:");
