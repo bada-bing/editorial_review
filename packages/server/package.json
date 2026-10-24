@@ -1,0 +1,13 @@
+{
+  "name": "@editorial-review/server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node --env-file-if-exists=../../.env --watch src/main.ts"
+  },
+  "dependencies": {
+    "@editorial-review/core": "workspace:*",
+    "@hono/node-server": "2.1.5",
+    "hono": "4.13.13"
+  }
+}

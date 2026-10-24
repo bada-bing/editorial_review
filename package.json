@@ -1,0 +1,19 @@
+{
+  "name": "editorial_review",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@12.4.2",
+  "engines": {
+    "node": "24.20.0"
+  },
+  "scripts": {
+    "server": "pnpm --filter @editorial-review/server start",
+    "test": "pnpm --recursive test",
+    "typecheck": "tsc -p packages/core && tsc -p packages/server && tsc -p packages/cli && tsc -p packages/web",
+    "editorial": "node packages/cli/src/main.ts"
+  },
+  "devDependencies": {
+    "@types/node": "24.19.2",
+    "typescript": "7.0.2"
+  }
+}

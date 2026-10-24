@@ -1,0 +1,5 @@
+{
+  "name": "@editorial-review/cli",
+  "private": true,
+  "type": "module"
+}
