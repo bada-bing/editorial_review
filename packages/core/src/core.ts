@@ -1,5 +1,6 @@
 import type { DatabaseSync } from "node:sqlite";
-import { Invalid, NotFound, NotYourTurn, ReviewRunning, TextApproved } from "./errors.ts";
+import { Invalid, NotApproved, NotFound, NotYourTurn, ReviewRunning, TextApproved } from "./errors.ts";
+import { toOutput } from "./output.ts";
 
 export type ConnectionId = number;
 export type TextId = number;
@@ -250,6 +251,30 @@ export class Core {
       .prepare("UPDATE review SET submitted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE draft_id = ? AND reviewer_connection_id = ? AND submitted_at IS NULL")
       .run(draftId, reviewer.connection);
     if (r.changes === 0) throw new NotFound("open review of the current draft by connection", reviewer.connection);
+  }
+
+  /**
+   * Approves the current draft, submitted or amended. Only in review, and not
+   * while a requested review runs, since its comments would go unread. The
+   * text then accepts no further change.
+   */
+  approve(id: TextId): void {
+    const t = this.getText(id);
+    if (t.state === "approved") throw new TextApproved(id);
+    if (t.state !== "in review") throw new NotYourTurn("approve", t.state);
+    if (t.waitsOn.some((w) => w.role === "reviewer" && w.actor !== "me")) throw new ReviewRunning(id);
+    const draftId = this.draftRowId(id, t.latestVersion!);
+    this.db.prepare("UPDATE text SET approved_draft_id = ? WHERE id = ?").run(draftId, id);
+  }
+
+  /** The approved draft in output form. Fails unless the text is approved. */
+  getResult(id: TextId): string {
+    const t = this.getText(id);
+    if (t.state !== "approved") throw new NotApproved(id, t.state);
+    const row = this.db
+      .prepare("SELECT d.content FROM text t JOIN draft d ON d.id = t.approved_draft_id WHERE t.id = ?")
+      .get(id) as { content: string };
+    return toOutput(row.content);
   }
 
   /** Deletes the text with its drafts, reviews and comments. */

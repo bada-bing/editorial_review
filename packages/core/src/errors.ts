@@ -40,3 +40,9 @@ export class Invalid extends CoreError {
     super("Invalid", message);
   }
 }
+
+export class NotApproved extends CoreError {
+  constructor(id: number, state: string) {
+    super("NotApproved", `text ${id} is ${state}, not approved`);
+  }
+}
