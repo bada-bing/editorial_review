@@ -38,6 +38,12 @@ export interface Draft {
   threads: Thread[];
 }
 
+export interface Connection {
+  id: ConnectionId;
+  target: string;
+  label: string;
+}
+
 export type ReviewId = number;
 export type CommentId = number;
 
@@ -101,6 +107,10 @@ export class Core {
     if (found) return found.id;
     const r = this.db.prepare("INSERT INTO connection (target, label) VALUES (?, ?)").run(target, label);
     return Number(r.lastInsertRowid);
+  }
+
+  listConnections(): Connection[] {
+    return this.db.prepare("SELECT id, target, label FROM connection ORDER BY id").all() as unknown as Connection[];
   }
 
   /** Opens a text for any writer; it waits on that writer for the first draft. */
