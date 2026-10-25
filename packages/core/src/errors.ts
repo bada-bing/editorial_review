@@ -46,3 +46,10 @@ export class NotApproved extends CoreError {
     super("NotApproved", `text ${id} is ${state}, not approved`);
   }
 }
+
+/** The actor may not take this action; today, an agent trying what is mine. */
+export class Forbidden extends CoreError {
+  constructor(action: string) {
+    super("Forbidden", `an agent may not ${action}`);
+  }
+}

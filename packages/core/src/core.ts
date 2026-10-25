@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { Invalid, NotApproved, NotFound, NotYourTurn, ReviewRunning, TextApproved } from "./errors.ts";
+import { Forbidden, Invalid, NotApproved, NotFound, NotYourTurn, ReviewRunning, TextApproved } from "./errors.ts";
 import { toOutput } from "./output.ts";
 
 export type ConnectionId = number;
@@ -75,7 +75,18 @@ interface StateRow {
   state: State;
 }
 
-/** Every rule of the record, over one open database. Only `server` holds one. */
+const sameActor = (a: Actor, b: Actor): boolean =>
+  a === "me" ? b === "me" : b !== "me" && a.connection === b.connection;
+
+/**
+ * Every rule of the record, over one open database. Only `server` holds one.
+ *
+ * Every action names its actor, me or a connection, and is checked before it
+ * acts: amending, requesting a review, approving and dropping are mine, a
+ * draft is the writer's, a review is its reviewer's. Anyone opens a text or
+ * comments, and reading needs no actor.
+ * Connections are established by `server` for whoever reaches it.
+ */
 export class Core {
   private readonly db: DatabaseSync;
   constructor(db: DatabaseSync) {
@@ -92,8 +103,9 @@ export class Core {
     return Number(r.lastInsertRowid);
   }
 
-  /** Opens a text; it waits on its writer for the first draft. */
-  openText(scenario: string, writer: Actor, context: Context = {}): TextId {
+  /** Opens a text for any writer; it waits on that writer for the first draft. */
+  openText(actor: Actor, scenario: string, writer: Actor, context: Context = {}): TextId {
+    void actor; // anyone opens a text, for themselves or for someone else
     const r = this.db
       .prepare("INSERT INTO text (scenario, writer_connection_id, context) VALUES (?, ?, ?)")
       .run(scenario, toColumn(writer), JSON.stringify(context));
@@ -122,8 +134,9 @@ export class Core {
    * Saves the writer's next version. Only while drafting; the text is then in
    * review and waits on me, until I submit my review of this version.
    */
-  submitDraft(id: TextId, content: string): Version {
+  submitDraft(actor: Actor, id: TextId, content: string): Version {
     const t = this.getText(id);
+    if (!sameActor(actor, t.writer)) throw new Forbidden("submit a draft as its writer");
     if (t.state === "approved") throw new TextApproved(id);
     if (t.state !== "drafting") throw new NotYourTurn("submit a draft", t.state);
     const version = (t.latestVersion ?? 0) + 1;
@@ -137,7 +150,8 @@ export class Core {
    * Every thread moves onto the new version: one on a line below shifts by
    * the change in length, one on the line stays.
    */
-  amendDraft(id: TextId, line: number, lines: string[]): Version {
+  amendDraft(actor: Actor, id: TextId, line: number, lines: string[]): Version {
+    if (actor !== "me") throw new Forbidden("amend a draft");
     const t = this.getText(id);
     if (t.state === "approved") throw new TextApproved(id);
     if (t.state !== "in review") throw new NotYourTurn("amend the draft", t.state);
@@ -195,7 +209,8 @@ export class Core {
    * on the whole draft, or a reply to a comment, which joins that comment's
    * thread. An Ask is answered the same way, by a reply.
    */
-  addComment(id: TextId, comment: NewComment): CommentId {
+  addComment(actor: Actor, id: TextId, comment: NewComment): CommentId {
+    void actor; // anyone in the conversation may comment; the author label says who
     const t = this.getText(id);
     if (t.state === "approved") throw new TextApproved(id);
     if (t.state !== "in review") throw new NotYourTurn("comment", t.state);
@@ -216,7 +231,8 @@ export class Core {
   }
 
   /** Asks a connection to review the current draft; the text then waits on it too. Only in review. */
-  requestReview(id: TextId, reviewer: ConnectionId): ReviewId {
+  requestReview(actor: Actor, id: TextId, reviewer: ConnectionId): ReviewId {
+    if (actor !== "me") throw new Forbidden("request a review");
     const t = this.getText(id);
     if (t.state === "approved") throw new TextApproved(id);
     if (t.state !== "in review") throw new NotYourTurn("request a review", t.state);
@@ -230,11 +246,12 @@ export class Core {
   }
 
   /**
-   * Ends a reviewer's review of the current draft. Mine is recorded by this
+   * Ends the actor's review of the current draft. Mine is recorded by this
    * call; a connection's must have been requested. Once no review is open and
    * mine is submitted, the text is drafting again.
    */
-  submitReview(id: TextId, reviewer: Actor): void {
+  submitReview(actor: Actor, id: TextId): void {
+    const reviewer = actor;
     const t = this.getText(id);
     if (t.state === "approved") throw new TextApproved(id);
     if (t.state !== "in review") throw new NotYourTurn("submit a review", t.state);
@@ -258,7 +275,8 @@ export class Core {
    * while a requested review runs, since its comments would go unread. The
    * text then accepts no further change.
    */
-  approve(id: TextId): void {
+  approve(actor: Actor, id: TextId): void {
+    if (actor !== "me") throw new Forbidden("approve a text");
     const t = this.getText(id);
     if (t.state === "approved") throw new TextApproved(id);
     if (t.state !== "in review") throw new NotYourTurn("approve", t.state);
@@ -278,7 +296,8 @@ export class Core {
   }
 
   /** Deletes the text with its drafts, reviews and comments. */
-  drop(id: TextId): void {
+  drop(actor: Actor, id: TextId): void {
+    if (actor !== "me") throw new Forbidden("drop a text");
     const r = this.db.prepare("DELETE FROM text WHERE id = ?").run(id);
     if (r.changes === 0) throw new NotFound("text", id);
   }

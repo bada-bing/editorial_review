@@ -19,7 +19,7 @@ describe("texts", () => {
   it("opens a text that waits on its writer, keeping its context", () => {
     const c = core();
     const w = c.connect("@12", "WFC-1145:edit");
-    const id = c.openText("commit", { connection: w }, { diff: "+a" });
+    const id = c.openText({ connection: w }, "commit", { connection: w }, { diff: "+a" });
     const t = c.getText(id);
     assert.equal(t.scenario, "commit");
     assert.deepEqual(t.context, { diff: "+a" });
@@ -30,24 +30,24 @@ describe("texts", () => {
 
   it("opens a text with me as the writer", () => {
     const c = core();
-    const t = c.getText(c.openText("slack", "me"));
+    const t = c.getText(c.openText("me", "slack", "me"));
     assert.equal(t.writer, "me");
     assert.deepEqual(t.waitsOn, [{ actor: "me", role: "writer" }]);
   });
 
   it("lists the open texts in the order they were opened", () => {
     const c = core();
-    const a = c.openText("commit", "me");
-    const b = c.openText("slack", "me");
+    const a = c.openText("me", "commit", "me");
+    const b = c.openText("me", "slack", "me");
     assert.deepEqual(c.listOpenTexts().map((t) => t.id), [a, b]);
   });
 
   it("drops a text, after which it is not found", () => {
     const c = core();
-    const id = c.openText("commit", "me");
-    c.drop(id);
+    const id = c.openText("me", "commit", "me");
+    c.drop("me", id);
     assert.throws(() => c.getText(id), NotFound);
-    assert.throws(() => c.drop(id), NotFound);
+    assert.throws(() => c.drop("me", id), NotFound);
     assert.deepEqual(c.listOpenTexts(), []);
   });
 });
