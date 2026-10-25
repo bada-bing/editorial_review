@@ -1,5 +1,5 @@
 import type { DatabaseSync } from "node:sqlite";
-import { NotFound, NotYourTurn, ReviewRunning, TextApproved } from "./errors.ts";
+import { Invalid, NotFound, NotYourTurn, ReviewRunning, TextApproved } from "./errors.ts";
 
 export type ConnectionId = number;
 export type TextId = number;
@@ -15,6 +15,8 @@ export type Origin = "submitted" | "amended";
 export interface Comment {
   id: number;
   author: string;
+  /** The comment this one answers; null for a thread's first comment. */
+  parentId: number | null;
   content: string;
   createdAt: string;
 }
@@ -33,6 +35,17 @@ export interface Draft {
   content: string;
   createdAt: string;
   threads: Thread[];
+}
+
+export type ReviewId = number;
+export type CommentId = number;
+
+/** A new comment: on a line, on the whole draft, or a reply to any comment of the current draft. */
+export interface NewComment {
+  author: string;
+  content: string;
+  line?: number;
+  replyTo?: CommentId;
 }
 
 export interface TextState {
@@ -155,11 +168,16 @@ export class Core {
     const comments = this.db
       .prepare("SELECT id, author, parent_id, line, content, created_at FROM comment WHERE draft_id = ? ORDER BY id")
       .all(row.id) as unknown as { id: number; author: string; parent_id: number | null; line: number | null; content: string; created_at: string }[];
+    // A reply joins the thread of the comment it answers; a parent always
+    // precedes its replies by id, so one pass resolves every thread.
     const threads = new Map<number, Thread>();
+    const threadOf = new Map<number, number>();
     for (const c of comments) {
-      const comment: Comment = { id: c.id, author: c.author, content: c.content, createdAt: c.created_at };
+      const comment: Comment = { id: c.id, author: c.author, parentId: c.parent_id, content: c.content, createdAt: c.created_at };
+      const root = c.parent_id === null ? c.id : threadOf.get(c.parent_id)!;
+      threadOf.set(c.id, root);
       if (c.parent_id === null) threads.set(c.id, { line: c.line, comments: [comment] });
-      else threads.get(c.parent_id)?.comments.push(comment);
+      else threads.get(root)!.comments.push(comment);
     }
     return {
       textId: row.text_id,
@@ -169,6 +187,69 @@ export class Core {
       createdAt: row.created_at,
       threads: [...threads.values()].sort((a, b) => (a.line ?? 0) - (b.line ?? 0)),
     };
+  }
+
+  /**
+   * Adds a comment to the current draft. Only in review: a thread on a line or
+   * on the whole draft, or a reply to a comment, which joins that comment's
+   * thread. An Ask is answered the same way, by a reply.
+   */
+  addComment(id: TextId, comment: NewComment): CommentId {
+    const t = this.getText(id);
+    if (t.state === "approved") throw new TextApproved(id);
+    if (t.state !== "in review") throw new NotYourTurn("comment", t.state);
+    if (comment.line !== undefined && comment.replyTo !== undefined) throw new Invalid("a comment is on a line or a reply, not both");
+    const draftId = this.draftRowId(id, t.latestVersion!);
+    if (comment.line !== undefined) {
+      const lines = this.getDraft(id).content.split("\n").length;
+      if (comment.line < 1 || comment.line > lines) throw new Invalid(`line ${comment.line} is outside 1..${lines}`);
+    }
+    if (comment.replyTo !== undefined) {
+      const parent = this.db.prepare("SELECT 1 FROM comment WHERE id = ? AND draft_id = ?").get(comment.replyTo, draftId);
+      if (!parent) throw new Invalid(`comment ${comment.replyTo} is not on the current draft`);
+    }
+    const r = this.db
+      .prepare("INSERT INTO comment (draft_id, author, line, parent_id, content) VALUES (?, ?, ?, ?, ?)")
+      .run(draftId, comment.author, comment.line ?? null, comment.replyTo ?? null, comment.content);
+    return Number(r.lastInsertRowid);
+  }
+
+  /** Asks a connection to review the current draft; the text then waits on it too. Only in review. */
+  requestReview(id: TextId, reviewer: ConnectionId): ReviewId {
+    const t = this.getText(id);
+    if (t.state === "approved") throw new TextApproved(id);
+    if (t.state !== "in review") throw new NotYourTurn("request a review", t.state);
+    const draftId = this.draftRowId(id, t.latestVersion!);
+    const existing = this.db
+      .prepare("SELECT id FROM review WHERE draft_id = ? AND reviewer_connection_id = ?")
+      .get(draftId, reviewer) as { id: number } | undefined;
+    if (existing) return existing.id;
+    const r = this.db.prepare("INSERT INTO review (draft_id, reviewer_connection_id) VALUES (?, ?)").run(draftId, reviewer);
+    return Number(r.lastInsertRowid);
+  }
+
+  /**
+   * Ends a reviewer's review of the current draft. Mine is recorded by this
+   * call; a connection's must have been requested. Once no review is open and
+   * mine is submitted, the text is drafting again.
+   */
+  submitReview(id: TextId, reviewer: Actor): void {
+    const t = this.getText(id);
+    if (t.state === "approved") throw new TextApproved(id);
+    if (t.state !== "in review") throw new NotYourTurn("submit a review", t.state);
+    const draftId = this.draftRowId(id, t.latestVersion!);
+    if (reviewer === "me") {
+      const done = this.db
+        .prepare("SELECT 1 FROM review WHERE draft_id = ? AND reviewer_connection_id IS NULL")
+        .get(draftId);
+      if (done) throw new NotYourTurn("submit my review again", "waiting on a requested reviewer");
+      this.db.prepare("INSERT INTO review (draft_id, submitted_at) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))").run(draftId);
+      return;
+    }
+    const r = this.db
+      .prepare("UPDATE review SET submitted_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE draft_id = ? AND reviewer_connection_id = ? AND submitted_at IS NULL")
+      .run(draftId, reviewer.connection);
+    if (r.changes === 0) throw new NotFound("open review of the current draft by connection", reviewer.connection);
   }
 
   /** Deletes the text with its drafts, reviews and comments. */

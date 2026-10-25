@@ -49,7 +49,7 @@ CREATE TABLE IF NOT EXISTS comment (
   id          INTEGER PRIMARY KEY,
   draft_id    INTEGER NOT NULL REFERENCES draft(id) ON DELETE CASCADE,
   author      TEXT NOT NULL,      -- a label: miki, writer, reviewer-fable
-  parent_id   INTEGER REFERENCES comment(id) ON DELETE CASCADE,
+  parent_id   INTEGER REFERENCES comment(id) ON DELETE CASCADE,  -- the comment answered
   line        INTEGER,            -- NULL on the whole draft; a reply carries none
   content     TEXT NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),

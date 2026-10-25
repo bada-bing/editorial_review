@@ -33,3 +33,10 @@ export class ReviewRunning extends CoreError {
     super("ReviewRunning", `a review of text ${id} is still running`);
   }
 }
+
+/** The request does not fit the draft: a line outside it, or a reply to a comment not on it. */
+export class Invalid extends CoreError {
+  constructor(message: string) {
+    super("Invalid", message);
+  }
+}
