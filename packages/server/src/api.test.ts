@@ -5,7 +5,9 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
 import { createApi } from "./api.ts";
+import { Connections } from "./connections.ts";
 import { Scenarios } from "./scenarios.ts";
+import { fakeTmux } from "./tmux.fake.ts";
 
 const setup = () => {
   const core = new Core(openDatabase(":memory:"));
@@ -13,8 +15,8 @@ const setup = () => {
   mkdirSync(join(root, "commit", "examples"), { recursive: true });
   writeFileSync(join(root, "commit", "spec.md"), "# Commit message\n");
   writeFileSync(join(root, "commit", "examples", "E1.md"), "---\nverdict: good\n---\n");
-  const lookup = (pane: string) => ({ id: core.connect(pane, `label:${pane}`), label: `label:${pane}` });
-  const api = createApi(core, lookup, new Scenarios(root));
+  const tmux = fakeTmux({ "%1": { id: "@1", name: "WFC-1145:edit" }, "%2": { id: "@2", name: "10x_05:assistant" } });
+  const api = createApi(core, new Connections(core, tmux), new Scenarios(root));
   const call = (method: string, path: string, body?: unknown, pane?: string) =>
     api.request(path, {
       method,
@@ -43,7 +45,7 @@ describe("the API", () => {
     assert.equal(r.status, 201);
     r = await call("GET", `/texts/${id}/drafts/latest`);
     const draft = (await r.json()) as { threads: { comments: { author: string }[] }[] };
-    assert.deepEqual(draft.threads[0]!.comments.map((c) => c.author), ["me", "label:%1"]);
+    assert.deepEqual(draft.threads[0]!.comments.map((c) => c.author), ["me", "WFC-1145:edit"]);
 
     r = await call("POST", `/texts/${id}/amendments`, { line: 4, lines: ["Two, amended."] });
     assert.deepEqual(await r.json(), { version: 2 });

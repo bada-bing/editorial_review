@@ -109,6 +109,25 @@ export class Core {
     return Number(r.lastInsertRowid);
   }
 
+  /** Points a connection at another tmux window; it keeps its texts. */
+  reconnect(id: ConnectionId, target: string): void {
+    const r = this.db.prepare("UPDATE connection SET target = ? WHERE id = ?").run(target, id);
+    if (r.changes === 0) throw new NotFound("connection", id);
+  }
+
+  relabel(id: ConnectionId, label: string): void {
+    const r = this.db.prepare("UPDATE connection SET label = ? WHERE id = ?").run(label, id);
+    if (r.changes === 0) throw new NotFound("connection", id);
+  }
+
+  findConnection(by: { target: string } | { label: string }): Connection | undefined {
+    return (
+      "target" in by
+        ? this.db.prepare("SELECT id, target, label FROM connection WHERE target = ?").get(by.target)
+        : this.db.prepare("SELECT id, target, label FROM connection WHERE label = ?").get(by.label)
+    ) as Connection | undefined;
+  }
+
   listConnections(): Connection[] {
     return this.db.prepare("SELECT id, target, label FROM connection ORDER BY id").all() as unknown as Connection[];
   }

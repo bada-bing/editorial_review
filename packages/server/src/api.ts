@@ -1,10 +1,8 @@
 import { CoreError, type Actor, type Core } from "@editorial-review/core";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
+import type { Connections } from "./connections.ts";
 import type { Scenarios } from "./scenarios.ts";
-
-/** Finds or creates the connection of the tmux window holding `pane`. */
-export type ConnectionLookup = (pane: string) => { id: number; label: string };
 
 type Env = { Variables: { actor: Actor; label: string } };
 
@@ -35,13 +33,13 @@ const parseActor = (v: unknown, fallback: Actor): Actor => {
  * The JSON API over every action of core. A request carrying X-Tmux-Pane acts
  * as that pane's connection; one without acts as me.
  */
-export function createApi(core: Core, lookup: ConnectionLookup, scenarios: Scenarios): Hono<Env> {
+export function createApi(core: Core, connections: Connections, scenarios: Scenarios): Hono<Env> {
   const api = new Hono<Env>();
 
   api.use("*", async (c, next) => {
     const pane = c.req.header("X-Tmux-Pane");
     if (pane) {
-      const conn = lookup(pane);
+      const conn = await connections.fromPane(pane);
       c.set("actor", { connection: conn.id });
       c.set("label", conn.label);
     } else {
@@ -123,7 +121,42 @@ export function createApi(core: Core, lookup: ConnectionLookup, scenarios: Scena
 
   api.get("/texts/:id/result", (c) => c.text(core.getResult(id(c.req.param("id")))));
 
-  api.get("/connections", (c) => c.json(core.listConnections()));
+  api.get("/connections", async (c) => c.json(await connections.list()));
+
+  // `editorial connect --as <label>`: the caller's window takes over that label's connection.
+  api.post("/connections", async (c) => {
+    const pane = c.req.header("X-Tmux-Pane");
+    if (!pane) throw new CoreError("Invalid", "connecting needs the X-Tmux-Pane header");
+    const { label } = (await c.req.json()) as { label?: string };
+    if (!label) throw new CoreError("Invalid", "label is required");
+    return c.json(await connections.reconnectAs(label, pane));
+  });
+
+  // From the UI: a connection re-established on another window, or relabelled.
+  api.post("/connections/:id/target", async (c) => {
+    const { target } = (await c.req.json()) as { target?: string };
+    if (!target) throw new CoreError("Invalid", "target is a tmux window id");
+    connections.retarget(id(c.req.param("id")), target);
+    return c.body(null, 204);
+  });
+
+  api.post("/connections/:id/label", async (c) => {
+    const { label } = (await c.req.json()) as { label?: string };
+    if (!label) throw new CoreError("Invalid", "label is required");
+    connections.relabel(id(c.req.param("id")), label);
+    return c.body(null, 204);
+  });
+
+  // Windows running an agent that are not yet connections, offered as reviewers.
+  api.get("/windows", async (c) => c.json(await connections.candidateWindows()));
+
+  // A window picked as a reviewer becomes a connection.
+  api.post("/windows/:id/connect", async (c) => {
+    const windowId = c.req.param("id");
+    const { state, name } = await connections.tmux.windowState(windowId);
+    if (state === "gone" || !name) throw new CoreError("NotFound", `no agent runs in window ${windowId}`);
+    return c.json(connections.forWindow({ id: windowId, name }), 201);
+  });
 
   api.get("/scenarios", (c) => c.json(scenarios.list()));
 

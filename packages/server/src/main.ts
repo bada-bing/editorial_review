@@ -4,7 +4,9 @@ import { Hono } from "hono";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { createApi } from "./api.ts";
+import { Connections } from "./connections.ts";
 import { Scenarios } from "./scenarios.ts";
+import { realTmux } from "./tmux.ts";
 
 const HOST = "127.0.0.1";
 const PORT = Number(process.env.EDITORIAL_REVIEW_PORT ?? 4330);
@@ -21,15 +23,14 @@ const db = openDatabase(DB_PATH);
 const core = new Core(db);
 const scenarios = new Scenarios(SCENARIOS);
 
-// Until connections are read from tmux, a pane is its own connection.
-const lookup = (pane: string) => {
-  const id = core.connect(pane, pane);
-  return { id, label: pane };
-};
+// EDITORIAL_REVIEW_AGENTS lists the commands that count as an agent running in a tmux pane.
+const AGENTS = (process.env.EDITORIAL_REVIEW_AGENTS ?? "claude").split(",").map((s) => s.trim());
+
+const connections = new Connections(core, realTmux(AGENTS));
 
 const app = new Hono();
 app.get("/", (c) => c.text("editorial_review"));
-app.route("/api", createApi(core, lookup, scenarios));
+app.route("/api", createApi(core, connections, scenarios));
 
 serve({ fetch: app.fetch, hostname: HOST, port: PORT }, () => {
   console.log(`listening on http://${HOST}:${PORT}, database ${DB_PATH}, scenarios ${SCENARIOS}`);
