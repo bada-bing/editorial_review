@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createApi } from "./api.ts";
 import { Connections } from "./connections.ts";
+import { Prompts } from "./prompts.ts";
 import { Scenarios } from "./scenarios.ts";
 import { realTmux } from "./tmux.ts";
 
@@ -26,14 +27,18 @@ const scenarios = new Scenarios(SCENARIOS);
 // EDITORIAL_REVIEW_AGENTS lists the commands that count as an agent running in a tmux pane.
 const AGENTS = (process.env.EDITORIAL_REVIEW_AGENTS ?? "claude").split(",").map((s) => s.trim());
 
-const connections = new Connections(core, realTmux(AGENTS));
+const tmux = realTmux(AGENTS);
+const connections = new Connections(core, tmux);
+const prompts = new Prompts(core, tmux, (scenario) => join(SCENARIOS, scenario, "spec.md"));
+prompts.rederive();
+prompts.start();
 
 const app = new Hono();
 app.get("/", (c) => c.text("editorial_review"));
-app.route("/api", createApi(core, connections, scenarios));
+app.route("/api", createApi(core, connections, scenarios, prompts));
 
 serve({ fetch: app.fetch, hostname: HOST, port: PORT }, () => {
   console.log(`listening on http://${HOST}:${PORT}, database ${DB_PATH}, scenarios ${SCENARIOS}`);
 });
 
-process.on("SIGTERM", () => { db.close(); process.exit(0); });
+process.on("SIGTERM", () => { prompts.stop(); db.close(); process.exit(0); });

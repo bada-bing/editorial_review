@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { createApi } from "./api.ts";
 import { Connections } from "./connections.ts";
+import { Prompts } from "./prompts.ts";
 import { Scenarios } from "./scenarios.ts";
 import { fakeTmux } from "./tmux.fake.ts";
 
@@ -16,14 +17,15 @@ const setup = () => {
   writeFileSync(join(root, "commit", "spec.md"), "# Commit message\n");
   writeFileSync(join(root, "commit", "examples", "E1.md"), "---\nverdict: good\n---\n");
   const tmux = fakeTmux({ "%1": { id: "@1", name: "WFC-1145:edit" }, "%2": { id: "@2", name: "10x_05:assistant" } });
-  const api = createApi(core, new Connections(core, tmux), new Scenarios(root));
+  const prompts = new Prompts(core, tmux, (s) => `${root}/${s}/spec.md`);
+  const api = createApi(core, new Connections(core, tmux), new Scenarios(root), prompts);
   const call = (method: string, path: string, body?: unknown, pane?: string) =>
     api.request(path, {
       method,
       headers: { "content-type": "application/json", ...(pane ? { "X-Tmux-Pane": pane } : {}) },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
-  return { core, call };
+  return { core, call, tmux, prompts };
 };
 
 describe("the API", () => {

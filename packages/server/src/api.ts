@@ -2,6 +2,7 @@ import { CoreError, type Actor, type Core } from "@editorial-review/core";
 import { Hono } from "hono";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { Connections } from "./connections.ts";
+import type { Prompts } from "./prompts.ts";
 import type { Scenarios } from "./scenarios.ts";
 
 type Env = { Variables: { actor: Actor; label: string } };
@@ -33,7 +34,7 @@ const parseActor = (v: unknown, fallback: Actor): Actor => {
  * The JSON API over every action of core. A request carrying X-Tmux-Pane acts
  * as that pane's connection; one without acts as me.
  */
-export function createApi(core: Core, connections: Connections, scenarios: Scenarios): Hono<Env> {
+export function createApi(core: Core, connections: Connections, scenarios: Scenarios, prompts: Prompts): Hono<Env> {
   const api = new Hono<Env>();
 
   api.use("*", async (c, next) => {
@@ -64,12 +65,14 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
     if (!scenarios.has(body.scenario)) throw new CoreError("NotFound", `no scenario named ${body.scenario}`);
     const actor = c.get("actor");
     const textId = core.openText(actor, body.scenario, parseActor(body.writer, actor), body.context ?? {});
+    prompts.draft(textId);
     return c.json({ id: textId }, 201);
   });
 
   api.get("/texts/:id", (c) => c.json(core.getText(id(c.req.param("id")))));
 
   api.delete("/texts/:id", (c) => {
+    if (c.get("actor") === "me") prompts.dropped(id(c.req.param("id")));
     core.drop(c.get("actor"), id(c.req.param("id")));
     return c.body(null, 204);
   });
@@ -106,22 +109,39 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
   api.post("/texts/:id/reviews", async (c) => {
     const { reviewer } = (await c.req.json()) as { reviewer?: number };
     if (!Number.isInteger(reviewer)) throw new CoreError("Invalid", "reviewer is a connection id");
-    return c.json({ id: core.requestReview(c.get("actor"), id(c.req.param("id")), reviewer!) }, 201);
+    const reviewId = core.requestReview(c.get("actor"), id(c.req.param("id")), reviewer!);
+    prompts.review(id(c.req.param("id")), reviewer!);
+    return c.json({ id: reviewId }, 201);
   });
 
   api.post("/texts/:id/reviews/submit", (c) => {
     core.submitReview(c.get("actor"), id(c.req.param("id")));
+    prompts.redraft(id(c.req.param("id")));
     return c.body(null, 204);
   });
 
   api.post("/texts/:id/approve", (c) => {
     core.approve(c.get("actor"), id(c.req.param("id")));
+    prompts.result(id(c.req.param("id")));
     return c.body(null, 204);
   });
 
   api.get("/texts/:id/result", (c) => c.text(core.getResult(id(c.req.param("id")))));
 
-  api.get("/connections", async (c) => c.json(await connections.list()));
+  // Ask: one thread sent to the writer, who answers with a reply in it.
+  api.post("/texts/:id/ask", async (c) => {
+    if (c.get("actor") !== "me") throw new CoreError("Forbidden", "an agent may not ask the writer");
+    const { commentId } = (await c.req.json()) as { commentId?: number };
+    if (!Number.isInteger(commentId)) throw new CoreError("Invalid", "commentId is required");
+    const t = core.getText(id(c.req.param("id")));
+    if (t.state !== "in review") throw new CoreError("NotYourTurn", `cannot ask while the text is ${t.state}`);
+    prompts.ask(t.id, commentId!);
+    return c.body(null, 202);
+  });
+
+  api.get("/connections", async (c) =>
+    c.json((await connections.list()).map((conn) => ({ ...conn, pending: prompts.pending(conn.id) }))),
+  );
 
   // `editorial connect --as <label>`: the caller's window takes over that label's connection.
   api.post("/connections", async (c) => {

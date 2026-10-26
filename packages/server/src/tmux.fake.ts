@@ -5,10 +5,12 @@ export interface FakeWindow extends Window {
 }
 
 /** A tmux of panes in windows, for tests. Every window runs an agent unless its state is gone. */
-export function fakeTmux(panes: Record<string, FakeWindow>): Tmux & { panes: Record<string, FakeWindow> } {
+export function fakeTmux(panes: Record<string, FakeWindow>): Tmux & { panes: Record<string, FakeWindow>; typed: [string, string][] } {
   const windows = () => Object.values(panes);
+  const typed: [string, string][] = [];
   return {
     panes,
+    typed,
     async windowOfPane(pane) {
       const w = panes[pane];
       return w ? { id: w.id, name: w.name } : undefined;
@@ -17,6 +19,9 @@ export function fakeTmux(panes: Record<string, FakeWindow>): Tmux & { panes: Rec
       const w = windows().find((w) => w.id === windowId);
       if (!w || w.state === "gone") return { state: "gone" };
       return { state: w.state ?? "idle", name: w.name };
+    },
+    async type(windowId, line) {
+      typed.push([windowId, line]);
     },
     async agentWindows() {
       return windows().filter((w) => w.state !== "gone").map(({ id, name }) => ({ id, name }));

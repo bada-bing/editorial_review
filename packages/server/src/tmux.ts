@@ -21,6 +21,8 @@ export interface Tmux {
   windowState(windowId: string): Promise<{ state: WindowState; name?: string }>;
   /** Every window in which an agent runs. */
   agentWindows(): Promise<Window[]>;
+  /** Types a line into a window and submits it, as if typed there. */
+  type(windowId: string, line: string): Promise<void>;
 }
 
 /** tmux as it is, with `agents` the commands that count as an agent running in a pane. */
@@ -64,5 +66,13 @@ export const realTmux = (agents: string[]): Tmux => ({
     } catch {
       return [];
     }
+  },
+
+  // The line is submitted apart, since an agent may take a fast run of keys
+  // for a paste and keep it in its input.
+  async type(windowId, line) {
+    await run("tmux", ["send-keys", "-t", windowId, "-l", line]);
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    await run("tmux", ["send-keys", "-t", windowId, "Enter"]);
   },
 });
