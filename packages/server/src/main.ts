@@ -5,6 +5,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { createApi } from "./api.ts";
 import { Connections } from "./connections.ts";
+import { Events } from "./events.ts";
 import { Prompts } from "./prompts.ts";
 import { Scenarios } from "./scenarios.ts";
 import { realTmux } from "./tmux.ts";
@@ -32,13 +33,15 @@ const connections = new Connections(core, tmux);
 const prompts = new Prompts(core, tmux, (scenario) => join(SCENARIOS, scenario, "spec.md"));
 prompts.rederive();
 prompts.start();
+const events = new Events();
+const unwatch = connections.watch((list) => events.publish({ event: "connections", data: list }));
 
 const app = new Hono();
 app.get("/", (c) => c.text("editorial_review"));
-app.route("/api", createApi(core, connections, scenarios, prompts));
+app.route("/api", createApi(core, connections, scenarios, prompts, events));
 
 serve({ fetch: app.fetch, hostname: HOST, port: PORT }, () => {
   console.log(`listening on http://${HOST}:${PORT}, database ${DB_PATH}, scenarios ${SCENARIOS}`);
 });
 
-process.on("SIGTERM", () => { prompts.stop(); db.close(); process.exit(0); });
+process.on("SIGTERM", () => { unwatch(); prompts.stop(); db.close(); process.exit(0); });

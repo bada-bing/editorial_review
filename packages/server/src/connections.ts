@@ -64,6 +64,25 @@ export class Connections {
     );
   }
 
+  /**
+   * Reads every connection's state every `ms` and calls `onChange` with the
+   * list whenever one differs from the last reading.
+   */
+  watch(onChange: (list: ConnectionWithState[]) => void, ms = 2000): () => void {
+    let last = "";
+    const tick = async () => {
+      const list = await this.list();
+      const now = JSON.stringify(list.map((c) => [c.id, c.state, c.target, c.label]));
+      if (now !== last) {
+        last = now;
+        onChange(list);
+      }
+    };
+    const timer = setInterval(() => void tick(), ms);
+    timer.unref();
+    return () => clearInterval(timer);
+  }
+
   /** Windows running an agent that are not yet connections: the candidates for a reviewer. */
   async candidateWindows(): Promise<Window[]> {
     const taken = new Set(this.core.listConnections().map((c) => c.target));

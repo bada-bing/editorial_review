@@ -1,7 +1,9 @@
 import { CoreError, type Actor, type Core } from "@editorial-review/core";
 import { Hono } from "hono";
+import { streamSSE } from "hono/streaming";
 import type { ContentfulStatusCode } from "hono/utils/http-status";
 import type { Connections } from "./connections.ts";
+import type { Events } from "./events.ts";
 import type { Prompts } from "./prompts.ts";
 import type { Scenarios } from "./scenarios.ts";
 
@@ -34,8 +36,13 @@ const parseActor = (v: unknown, fallback: Actor): Actor => {
  * The JSON API over every action of core. A request carrying X-Tmux-Pane acts
  * as that pane's connection; one without acts as me.
  */
-export function createApi(core: Core, connections: Connections, scenarios: Scenarios, prompts: Prompts): Hono<Env> {
+export function createApi(core: Core, connections: Connections, scenarios: Scenarios, prompts: Prompts, events: Events): Hono<Env> {
   const api = new Hono<Env>();
+
+  const changed = (textId: number) => {
+    const t = core.getText(textId);
+    events.publish({ event: "text", data: { id: textId, state: t.state, latestVersion: t.latestVersion } });
+  };
 
   api.use("*", async (c, next) => {
     const pane = c.req.header("X-Tmux-Pane");
@@ -66,6 +73,7 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
     const actor = c.get("actor");
     const textId = core.openText(actor, body.scenario, parseActor(body.writer, actor), body.context ?? {});
     prompts.draft(textId);
+    changed(textId);
     return c.json({ id: textId }, 201);
   });
 
@@ -74,6 +82,7 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
   api.delete("/texts/:id", (c) => {
     if (c.get("actor") === "me") prompts.dropped(id(c.req.param("id")));
     core.drop(c.get("actor"), id(c.req.param("id")));
+    events.publish({ event: "text", data: { id: id(c.req.param("id")), dropped: true } });
     return c.body(null, 204);
   });
 
@@ -85,13 +94,17 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
   api.post("/texts/:id/drafts", async (c) => {
     const { content } = (await c.req.json()) as { content?: string };
     if (typeof content !== "string") throw new CoreError("Invalid", "content is required");
-    return c.json({ version: core.submitDraft(c.get("actor"), id(c.req.param("id")), content) }, 201);
+    const version = core.submitDraft(c.get("actor"), id(c.req.param("id")), content);
+    changed(id(c.req.param("id")));
+    return c.json({ version }, 201);
   });
 
   api.post("/texts/:id/amendments", async (c) => {
     const { line, lines } = (await c.req.json()) as { line?: number; lines?: string[] };
     if (!Number.isInteger(line) || !Array.isArray(lines)) throw new CoreError("Invalid", "line and lines are required");
-    return c.json({ version: core.amendDraft(c.get("actor"), id(c.req.param("id")), line!, lines) }, 201);
+    const version = core.amendDraft(c.get("actor"), id(c.req.param("id")), line!, lines);
+    changed(id(c.req.param("id")));
+    return c.json({ version }, 201);
   });
 
   api.post("/texts/:id/comments", async (c) => {
@@ -103,6 +116,7 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
       ...(body.line !== undefined ? { line: body.line } : {}),
       ...(body.replyTo !== undefined ? { replyTo: body.replyTo } : {}),
     });
+    changed(id(c.req.param("id")));
     return c.json({ id: commentId }, 201);
   });
 
@@ -111,18 +125,21 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
     if (!Number.isInteger(reviewer)) throw new CoreError("Invalid", "reviewer is a connection id");
     const reviewId = core.requestReview(c.get("actor"), id(c.req.param("id")), reviewer!);
     prompts.review(id(c.req.param("id")), reviewer!);
+    changed(id(c.req.param("id")));
     return c.json({ id: reviewId }, 201);
   });
 
   api.post("/texts/:id/reviews/submit", (c) => {
     core.submitReview(c.get("actor"), id(c.req.param("id")));
     prompts.redraft(id(c.req.param("id")));
+    changed(id(c.req.param("id")));
     return c.body(null, 204);
   });
 
   api.post("/texts/:id/approve", (c) => {
     core.approve(c.get("actor"), id(c.req.param("id")));
     prompts.result(id(c.req.param("id")));
+    changed(id(c.req.param("id")));
     return c.body(null, 204);
   });
 
@@ -185,6 +202,27 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
     if (!s) throw new CoreError("NotFound", `no scenario named ${c.req.param("name")}`);
     return c.json(s);
   });
+
+  // The page's stream: `text` events name a text that changed, `connections`
+  // carry the participants when a window's state changes. A comment line
+  // every 15 seconds keeps the connection alive.
+  api.get("/events", (c) =>
+    streamSSE(c, async (stream) => {
+      await stream.writeSSE({ event: "connections", data: JSON.stringify(await connections.list()) });
+      await new Promise<void>((resolve) => {
+        const unsubscribe = events.subscribe((e) => {
+          void stream.writeSSE({ event: e.event, data: JSON.stringify(e.data) });
+        });
+        const keepAlive = setInterval(() => void stream.write(": keep-alive\n\n"), 15000);
+        keepAlive.unref();
+        stream.onAbort(() => {
+          unsubscribe();
+          clearInterval(keepAlive);
+          resolve();
+        });
+      });
+    }),
+  );
 
   return api;
 }

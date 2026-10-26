@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { describe, it } from "node:test";
 import { createApi } from "./api.ts";
 import { Connections } from "./connections.ts";
+import { Events } from "./events.ts";
 import { Prompts } from "./prompts.ts";
 import { Scenarios } from "./scenarios.ts";
 import { fakeTmux } from "./tmux.fake.ts";
@@ -18,14 +19,15 @@ const setup = () => {
   writeFileSync(join(root, "commit", "examples", "E1.md"), "---\nverdict: good\n---\n");
   const tmux = fakeTmux({ "%1": { id: "@1", name: "WFC-1145:edit" }, "%2": { id: "@2", name: "10x_05:assistant" } });
   const prompts = new Prompts(core, tmux, (s) => `${root}/${s}/spec.md`);
-  const api = createApi(core, new Connections(core, tmux), new Scenarios(root), prompts);
+  const events = new Events();
+  const api = createApi(core, new Connections(core, tmux), new Scenarios(root), prompts, events);
   const call = (method: string, path: string, body?: unknown, pane?: string) =>
     api.request(path, {
       method,
       headers: { "content-type": "application/json", ...(pane ? { "X-Tmux-Pane": pane } : {}) },
       ...(body !== undefined ? { body: JSON.stringify(body) } : {}),
     });
-  return { core, call, tmux, prompts };
+  return { core, call, tmux, prompts, events, api };
 };
 
 describe("the API", () => {
@@ -105,5 +107,29 @@ describe("the API", () => {
     assert.equal(s.spec, "# Commit message\n");
     assert.deepEqual(Object.keys(s.examples), ["E1"]);
     assert.equal((await call("GET", "/scenarios/slack")).status, 404);
+  });
+});
+
+describe("the event stream", () => {
+  it("announces the participants first, then every change to a text", async () => {
+    const { call, api } = setup();
+    await call("GET", "/texts", undefined, "%1"); // one connection exists
+    const res = await api.request("/events");
+    assert.equal(res.headers.get("content-type"), "text/event-stream");
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+    const next = async () => decoder.decode((await reader.read()).value);
+
+    assert.match(await next(), /^event: connections\ndata: \[\{"id":1,/);
+
+    const { id } = (await (await call("POST", "/texts", { scenario: "commit" }, "%1")).json()) as { id: number };
+    assert.equal(await next(), `event: text\ndata: {"id":${id},"state":"drafting","latestVersion":null}\n\n`);
+
+    await call("POST", `/texts/${id}/drafts`, { content: "a" }, "%1");
+    assert.equal(await next(), `event: text\ndata: {"id":${id},"state":"in review","latestVersion":1}\n\n`);
+
+    await call("DELETE", `/texts/${id}`);
+    assert.equal(await next(), `event: text\ndata: {"id":${id},"dropped":true}\n\n`);
+    await reader.cancel();
   });
 });
