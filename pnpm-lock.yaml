@@ -173,7 +173,15 @@ importers:
         specifier: 7.0.2
         version: 7.0.2
 
-  packages/cli: {}
+  packages/cli:
+    dependencies:
+      '@editorial-review/core':
+        specifier: workspace:*
+        version: link:../core
+    devDependencies:
+      '@editorial-review/server':
+        specifier: workspace:*
+        version: link:../server
 
   packages/core: {}
 

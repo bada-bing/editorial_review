@@ -13,6 +13,16 @@ describe("connections", () => {
     assert.equal(c.connect("@12", "renamed"), id);
     assert.notEqual(c.connect("@13", "10x_05:assistant"), id);
   });
+
+  it("moves a connection to a window, absorbing the connection that window already had", () => {
+    const c = core();
+    const labelled = c.connect("@1", "WFC-1145:edit");
+    const fresh = c.connect("@2", "WFC-1145:assistant");
+    const text = c.openText({ connection: fresh }, "commit", { connection: fresh });
+    c.reconnect(labelled, "@2");
+    assert.deepEqual(c.getText(text).writer, { connection: labelled });
+    assert.deepEqual(c.listConnections().map((x) => [x.id, x.target, x.label]), [[labelled, "@2", "WFC-1145:edit"]]);
+  });
 });
 
 describe("texts", () => {

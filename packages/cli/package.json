@@ -1,5 +1,17 @@
 {
   "name": "@editorial-review/cli",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "bin": {
+    "editorial": "./bin/editorial"
+  },
+  "scripts": {
+    "test": "node --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@editorial-review/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@editorial-review/server": "workspace:*"
+  }
 }

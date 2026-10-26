@@ -109,10 +109,22 @@ export class Core {
     return Number(r.lastInsertRowid);
   }
 
-  /** Points a connection at another tmux window; it keeps its texts. */
+  /**
+   * Points a connection at another tmux window; it keeps its texts. A
+   * connection the window already has is the same agent, so its texts and
+   * reviews pass to this one and it is removed.
+   */
   reconnect(id: ConnectionId, target: string): void {
-    const r = this.db.prepare("UPDATE connection SET target = ? WHERE id = ?").run(target, id);
-    if (r.changes === 0) throw new NotFound("connection", id);
+    this.transaction(() => {
+      const holder = this.findConnection({ target });
+      if (holder && holder.id !== id) {
+        this.db.prepare("UPDATE text SET writer_connection_id = ? WHERE writer_connection_id = ?").run(id, holder.id);
+        this.db.prepare("UPDATE review SET reviewer_connection_id = ? WHERE reviewer_connection_id = ?").run(id, holder.id);
+        this.db.prepare("DELETE FROM connection WHERE id = ?").run(holder.id);
+      }
+      const r = this.db.prepare("UPDATE connection SET target = ? WHERE id = ?").run(target, id);
+      if (r.changes === 0) throw new NotFound("connection", id);
+    });
   }
 
   relabel(id: ConnectionId, label: string): void {
