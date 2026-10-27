@@ -20,13 +20,14 @@ export interface Outcome {
 const USAGE = `usage: editorial <command> [options]
 
   connect        --as <label>                      take over that label's connection
-  open-text      --scenario <s> [--writer me]      open a text; prints its id
+  open-text      --scenario <s> [--writer <who>]   open a text; prints its id. The writer is you unless
+                                                   --writer names me or another connection by its label
                  [--context <name>=<value|@file>]...
   get-text       <id>                              the text's state and context
-  get-draft      <id> [--version <n>]              a draft with its threads; the latest by default
-  submit-draft   <id> < body                       the next version, in review form
+  get-draft      <id> [--version <n>] [--xml]      a draft's lines with their ids and threads; --xml prints the tree
+  submit-draft   <id> < draft.xml                  the next version, XML matching the scenario's templates
   add-comment    <id> [--author <label>]           a thread on a line or on the whole draft,
-                 [--line <n> | --reply-to <id>] < body   or a reply
+                 [--line <id> | --reply-to <id>] < body   or a reply
   submit-review  <id>                              end your review
   get-result     <id>                              the approved text; fails unless approved
 `;
@@ -58,7 +59,7 @@ async function dispatch(argv: string[], io: Io): Promise<string> {
     case "connect": {
       const { values } = parseArgs({ args: rest, options: { as: { type: "string" } } });
       if (!values.as) throw new Failure("connect needs --as <label>");
-      const c = (await api("POST", "/api/connections", { label: values.as })) as { id: number; label: string };
+      const c = (await api("POST", "/api/connections", { label: values.as })) as { id: string; label: string };
       return `connection ${c.id} is now this window, as ${c.label}\n`;
     }
     case "open-text": {
@@ -67,7 +68,7 @@ async function dispatch(argv: string[], io: Io): Promise<string> {
         options: { scenario: { type: "string" }, writer: { type: "string" }, context: { type: "string", multiple: true } },
       });
       if (!values.scenario) throw new Failure("open-text needs --scenario <name>");
-      if (values.writer !== undefined && values.writer !== "me") throw new Failure("--writer takes only me; leave it out to write the text yourself");
+
       const context: Record<string, string> = {};
       for (const item of values.context ?? []) {
         const eq = item.indexOf("=");
@@ -75,8 +76,8 @@ async function dispatch(argv: string[], io: Io): Promise<string> {
         const value = item.slice(eq + 1);
         context[item.slice(0, eq)] = value.startsWith("@") ? readFileSync(value.slice(1), "utf8") : value;
       }
-      const body = { scenario: values.scenario, context, ...(values.writer ? { writer: "me" } : {}) };
-      const t = (await api("POST", "/api/texts", body)) as { id: number };
+      const body = { scenario: values.scenario, context, ...(values.writer ? { writer: values.writer } : {}) };
+      const t = (await api("POST", "/api/texts", body)) as { id: string };
       return `${t.id}\n`;
     }
     case "get-text": {
@@ -84,17 +85,18 @@ async function dispatch(argv: string[], io: Io): Promise<string> {
       return formatText((await api("GET", `/api/texts/${id}`)) as TextState);
     }
     case "get-draft": {
-      const { values, positionals } = parseArgs({ args: rest, options: { version: { type: "string" } }, allowPositionals: true });
+      const { values, positionals } = parseArgs({ args: rest, options: { version: { type: "string" }, xml: { type: "boolean" } }, allowPositionals: true });
       const id = textId(positionals);
-      const version = values.version ?? "latest";
+      const version = values.version === undefined ? "latest" : String(number(values.version, "--version"));
       const text = (await api("GET", `/api/texts/${id}`)) as TextState;
-      return formatDraft(text, (await api("GET", `/api/texts/${id}/drafts/${version}`)) as Draft);
+      const draft = (await api("GET", `/api/texts/${id}/drafts/${version}`)) as Draft;
+      return values.xml ? draft.xml : formatDraft(text, draft);
     }
     case "submit-draft": {
       const id = textId(rest);
-      const content = io.stdin();
-      if (content.trim() === "") throw new Failure("submit-draft reads the draft from stdin, and it was empty");
-      const r = (await api("POST", `/api/texts/${id}/drafts`, { content: content.replace(/\n$/, "") })) as { version: number };
+      const xml = io.stdin();
+      if (xml.trim() === "") throw new Failure("submit-draft reads the draft, as XML, from stdin, and it was empty");
+      const r = (await api("POST", `/api/texts/${id}/drafts`, { xml })) as { version: number };
       return `${r.version}\n`;
     }
     case "add-comment": {
@@ -110,10 +112,10 @@ async function dispatch(argv: string[], io: Io): Promise<string> {
       const body = {
         content,
         ...(values.author ? { author: values.author } : {}),
-        ...(values.line !== undefined ? { line: number(values.line, "--line") } : {}),
-        ...(values["reply-to"] !== undefined ? { replyTo: number(values["reply-to"], "--reply-to") } : {}),
+        ...(values.line !== undefined ? { lineId: hexId(values.line, "--line") } : {}),
+        ...(values["reply-to"] !== undefined ? { replyTo: hexId(values["reply-to"], "--reply-to") } : {}),
       };
-      const r = (await api("POST", `/api/texts/${id}/comments`, body)) as { id: number };
+      const r = (await api("POST", `/api/texts/${id}/comments`, body)) as { id: string };
       return `${r.id}\n`;
     }
     case "submit-review": {
@@ -129,11 +131,16 @@ async function dispatch(argv: string[], io: Io): Promise<string> {
   }
 }
 
-const textId = (positionals: string[]): number => {
+const textId = (positionals: string[]): string => {
   const [id, extra] = positionals;
   if (!id) throw new Failure("the text's id is required");
   if (extra) throw new Failure(`unexpected argument ${extra}`);
-  return number(id, "the text's id");
+  return hexId(id, "the text's id");
+};
+
+const hexId = (s: string, what: string): string => {
+  if (!/^[0-9a-f]{8}$/.test(s)) throw new Failure(`${what} is eight hex characters, not ${s}`);
+  return s;
 };
 
 const number = (s: string, what: string): number => {
@@ -182,18 +189,20 @@ function formatText(t: TextState): string {
   return lines.join("\n") + "\n";
 }
 
-/** The draft with line numbers, each thread under its line and the whole-draft threads first. */
+/** The draft's lines, numbered, each with its id and how it changed, each thread under its line; the whole-draft threads last. */
 function formatDraft(t: TextState, d: Draft): string {
   const out = [`text ${t.id}, version ${d.version} (${d.origin}), ${t.state}`];
   const threadLines = (threads: Draft["threads"], indent: string) =>
-    threads.flatMap((th) => th.comments.map((c) => `${indent}${c.parentId === null ? "" : "  "}[c${c.id} ${c.author}] ${c.content.replace(/\n/g, " / ")}`));
-  const whole = d.threads.filter((th) => th.line === null);
+    threads.flatMap((th) => th.comments.map((c) => `${indent}${c.parentId === null ? "" : "  "}[${c.id} ${c.author}] ${c.content.replace(/\n/g, " / ")}`));
+  const width = String(d.rows.length).length;
+  const mark = { unchanged: " ", changed: "~", new: "+" };
+  for (const r of d.rows) {
+    const answers = r.answers.length ? `  answers ${r.answers.join(" ")}` : "";
+    out.push(`${String(r.n).padStart(width)} ${mark[r.change]} ${r.id}  ${r.text}${answers}`);
+    out.push(...threadLines(d.threads.filter((th) => th.lineId === r.id), " ".repeat(width + 14)));
+  }
+  for (const r of d.removed) out.push(`${" ".repeat(width)} - ${r.id}  ${r.text}`, ...threadLines(d.threads.filter((th) => th.lineId === r.id), " ".repeat(width + 14)));
+  const whole = d.threads.filter((th) => th.lineId === null);
   if (whole.length) out.push("on the whole draft:", ...threadLines(whole, "  "));
-  const lines = d.content.split("\n");
-  const width = String(lines.length).length;
-  lines.forEach((line, i) => {
-    out.push(`${String(i + 1).padStart(width)}  ${line}`);
-    out.push(...threadLines(d.threads.filter((th) => th.line === i + 1), " ".repeat(width + 4)));
-  });
   return out.join("\n") + "\n";
 }
