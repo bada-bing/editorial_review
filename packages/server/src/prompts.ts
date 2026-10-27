@@ -56,7 +56,33 @@ export class Prompts {
       const { state } = await this.tmux.windowState(target);
       if (state !== "waiting" && state !== "idle") continue;
       queue.shift();
+      // A prompt queued while the window was busy may be stale by the time
+      // the window is free: the writer drafted before being told to. One
+      // whose occasion has passed is dropped rather than typed.
+      if (this.stale(head)) continue;
       await this.tmux.type(target, head.line);
+    }
+  }
+
+  private stale(p: Prompt): boolean {
+    let t;
+    try {
+      t = this.core.getText(p.text);
+    } catch {
+      return p.kind !== "dropped";
+    }
+    switch (p.kind) {
+      case "draft":
+      case "redraft":
+        return t.state !== "drafting";
+      case "review":
+        return !t.waitsOn.some((w) => w.role === "reviewer" && w.actor !== "me" && w.actor.connection === p.connection);
+      case "ask":
+        return t.state !== "in review";
+      case "result":
+        return t.state !== "approved";
+      case "dropped":
+        return false;
     }
   }
 
@@ -82,14 +108,14 @@ export class Prompts {
     if (t.state === "drafting" && t.writer !== "me") this.queue(t.writer.connection, text, "redraft");
   }
 
-  ask(text: TextId, commentId: number): void {
+  ask(text: TextId, commentId: string): void {
     const t = this.core.getText(text);
     if (t.writer === "me") return;
     const draft = this.core.getDraft(text);
     const thread = draft.threads.find((th) => th.comments.some((c) => c.id === commentId));
     const comment = thread?.comments.find((c) => c.id === commentId);
     if (!thread || !comment) return;
-    const where = thread.line === null ? "on the whole draft" : `on line ${thread.line}`;
+    const where = thread.lineId === null ? "on the whole draft" : `on line ${thread.lineId}`;
     this.queue(t.writer.connection, text, "ask", `Question ${where} of text ${text}, comment ${commentId}: ${oneLine(comment.content)} Answer with: editorial add-comment ${text} --author writer --reply-to ${commentId} < answer`);
   }
 
@@ -102,8 +128,9 @@ export class Prompts {
     if (t.writer !== "me") this.queue(t.writer.connection, text, "result");
   }
 
-  /** Called before the drop, while the text still says who it waits on. */
+  /** Called before the drop, while the text still says who it waits on. Whatever was still queued for the text goes. */
   dropped(text: TextId): void {
+    for (const [connection, queue] of this.queues) this.queues.set(connection, queue.filter((p) => p.text !== text));
     const t = this.core.getText(text);
     const told = new Set<ConnectionId>();
     for (const actor of [t.writer, ...t.waitsOn.map((w) => w.actor)]) {
@@ -127,11 +154,11 @@ export class Prompts {
     const spec = this.specPath(t.scenario);
     switch (kind) {
       case "draft":
-        return `Text ${text} of the ${t.scenario} scenario is open for you to write. Read its spec at ${spec} and the context with: editorial get-text ${text}. Draft it in review form, one sentence per line, and submit with: editorial submit-draft ${text} < draft`;
+        return `Text ${text} of the ${t.scenario} scenario is open for you to write. Read its spec at ${spec}, the Structure section above all, and the context with: editorial get-text ${text}. Draft it as XML matching the templates, one <line> per sentence-like unit, as message.example.xml beside the spec shows, and submit with: editorial submit-draft ${text} < draft.xml`;
       case "redraft":
-        return `Text ${text} was reviewed. Read the draft and its comments with: editorial get-draft ${text}. Change only what the comments ask for, and submit the next version with: editorial submit-draft ${text} < draft`;
+        return `Text ${text} was reviewed. Read the draft with its line ids and comments with: editorial get-draft ${text} --xml. Start from that XML, keep the id of every line you leave alone or rewrite, set answers="<comment ids>" on a line you change for a comment, change only what the comments ask for, and submit the next version with: editorial submit-draft ${text} < draft.xml`;
       case "review":
-        return `Review text ${text} of the ${t.scenario} scenario against its spec at ${spec}. Read the draft with: editorial get-draft ${text}. Comment with: editorial add-comment ${text} --line <n> < comment. When done: editorial submit-review ${text}`;
+        return `Review text ${text} of the ${t.scenario} scenario against its spec at ${spec}. Read the draft with: editorial get-draft ${text}. Comment on a line by its id with: editorial add-comment ${text} --line <id> < comment. When done: editorial submit-review ${text}`;
       case "result":
         return `Text ${text} is approved. Take it with: editorial get-result ${text}, and use it for what it was opened for.`;
       case "dropped":

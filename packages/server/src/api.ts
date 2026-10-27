@@ -19,16 +19,24 @@ const STATUS: Record<string, ContentfulStatusCode> = {
   NotApproved: 409,
 };
 
-const id = (s: string): number => {
+/** A text's, comment's or connection's id: eight hex characters. */
+const id = (s: string): string => {
+  if (!/^[0-9a-f]{8}$/.test(s)) throw new CoreError("Invalid", `${s} is not an id`);
+  return s;
+};
+
+const version = (s: string): number => {
   const n = Number(s);
-  if (!Number.isInteger(n) || n < 1) throw new CoreError("Invalid", `${s} is not an id`);
+  if (!Number.isInteger(n) || n < 1) throw new CoreError("Invalid", `${s} is not a version`);
   return n;
 };
+
+const isId = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{8}$/.test(v);
 
 const parseActor = (v: unknown, fallback: Actor): Actor => {
   if (v === undefined) return fallback;
   if (v === "me") return "me";
-  if (typeof v === "number" && Number.isInteger(v)) return { connection: v };
+  if (isId(v)) return { connection: v };
   throw new CoreError("Invalid", "writer is \"me\" or a connection id");
 };
 
@@ -39,7 +47,7 @@ const parseActor = (v: unknown, fallback: Actor): Actor => {
 export function createApi(core: Core, connections: Connections, scenarios: Scenarios, prompts: Prompts, events: Events): Hono<Env> {
   const api = new Hono<Env>();
 
-  const changed = (textId: number) => {
+  const changed = (textId: string) => {
     const t = core.getText(textId);
     events.publish({ event: "text", data: { id: textId, state: t.state, latestVersion: t.latestVersion } });
   };
@@ -86,34 +94,47 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
     return c.body(null, 204);
   });
 
+  api.get("/texts/:id/drafts", (c) => c.json(core.listDrafts(id(c.req.param("id")))));
+
   api.get("/texts/:id/drafts/:version", (c) => {
     const v = c.req.param("version");
-    return c.json(core.getDraft(id(c.req.param("id")), v === "latest" ? undefined : id(v)));
+    return c.json(core.getDraft(id(c.req.param("id")), v === "latest" ? undefined : version(v)));
   });
 
+  // A draft arrives as XML matching the scenario's templates, or as typed text the templates turn into one.
   api.post("/texts/:id/drafts", async (c) => {
-    const { content } = (await c.req.json()) as { content?: string };
-    if (typeof content !== "string") throw new CoreError("Invalid", "content is required");
-    const version = core.submitDraft(c.get("actor"), id(c.req.param("id")), content);
-    changed(id(c.req.param("id")));
+    const { xml, text } = (await c.req.json()) as { xml?: string; text?: string };
+    if (typeof xml !== "string" && typeof text !== "string") throw new CoreError("Invalid", "xml or text is required");
+    const textId = id(c.req.param("id"));
+    const draft = typeof xml === "string" ? xml : core.draftFromText(textId, text!);
+    const version = core.submitDraft(c.get("actor"), textId, draft);
+    changed(textId);
     return c.json({ version }, 201);
   });
 
-  api.post("/texts/:id/amendments", async (c) => {
-    const { line, lines } = (await c.req.json()) as { line?: number; lines?: string[] };
-    if (!Number.isInteger(line) || !Array.isArray(lines)) throw new CoreError("Invalid", "line and lines are required");
-    const version = core.amendDraft(c.get("actor"), id(c.req.param("id")), line!, lines);
+  // The output any version would produce: the page's preview.
+  api.get("/texts/:id/drafts/:version/output", (c) => {
+    const v = c.req.param("version");
+    return c.text(core.renderDraft(id(c.req.param("id")), v === "latest" ? undefined : version(v)));
+  });
+
+  api.post("/texts/:id/lines/:lineId", async (c) => {
+    const { lines } = (await c.req.json()) as { lines?: string[] };
+    if (!Array.isArray(lines) || lines.some((l) => typeof l !== "string")) throw new CoreError("Invalid", "lines is a list of strings");
+    const version = core.amendLine(c.get("actor"), id(c.req.param("id")), id(c.req.param("lineId")), lines);
     changed(id(c.req.param("id")));
     return c.json({ version }, 201);
   });
 
   api.post("/texts/:id/comments", async (c) => {
-    const body = (await c.req.json()) as { author?: string; content?: string; line?: number; replyTo?: number };
+    const body = (await c.req.json()) as { author?: string; content?: string; lineId?: string; replyTo?: string };
     if (typeof body.content !== "string") throw new CoreError("Invalid", "content is required");
+    if (body.replyTo !== undefined && !isId(body.replyTo)) throw new CoreError("Invalid", "replyTo is a comment id");
+    if (body.lineId !== undefined && !isId(body.lineId)) throw new CoreError("Invalid", "lineId is a line id");
     const commentId = core.addComment(c.get("actor"), id(c.req.param("id")), {
       author: body.author ?? c.get("label"),
       content: body.content,
-      ...(body.line !== undefined ? { line: body.line } : {}),
+      ...(body.lineId !== undefined ? { lineId: body.lineId } : {}),
       ...(body.replyTo !== undefined ? { replyTo: body.replyTo } : {}),
     });
     changed(id(c.req.param("id")));
@@ -121,8 +142,8 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
   });
 
   api.post("/texts/:id/reviews", async (c) => {
-    const { reviewer } = (await c.req.json()) as { reviewer?: number };
-    if (!Number.isInteger(reviewer)) throw new CoreError("Invalid", "reviewer is a connection id");
+    const { reviewer } = (await c.req.json()) as { reviewer?: string };
+    if (!isId(reviewer)) throw new CoreError("Invalid", "reviewer is a connection id");
     const reviewId = core.requestReview(c.get("actor"), id(c.req.param("id")), reviewer!);
     prompts.review(id(c.req.param("id")), reviewer!);
     changed(id(c.req.param("id")));
@@ -148,11 +169,11 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
   // Ask: one thread sent to the writer, who answers with a reply in it.
   api.post("/texts/:id/ask", async (c) => {
     if (c.get("actor") !== "me") throw new CoreError("Forbidden", "an agent may not ask the writer");
-    const { commentId } = (await c.req.json()) as { commentId?: number };
-    if (!Number.isInteger(commentId)) throw new CoreError("Invalid", "commentId is required");
+    const { commentId } = (await c.req.json()) as { commentId?: string };
+    if (!isId(commentId)) throw new CoreError("Invalid", "commentId is a comment id");
     const t = core.getText(id(c.req.param("id")));
     if (t.state !== "in review") throw new CoreError("NotYourTurn", `cannot ask while the text is ${t.state}`);
-    prompts.ask(t.id, commentId!);
+    prompts.ask(t.id, commentId);
     return c.body(null, 202);
   });
 

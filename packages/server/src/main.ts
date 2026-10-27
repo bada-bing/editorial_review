@@ -22,23 +22,23 @@ const DB_PATH =
 const SCENARIOS = process.env.EDITORIAL_REVIEW_SCENARIOS ?? join(process.cwd(), "scenarios");
 
 const db = openDatabase(DB_PATH);
-const core = new Core(db);
 const scenarios = new Scenarios(SCENARIOS);
+const core = new Core(db, (scenario) => scenarios.templates(scenario));
 
 // EDITORIAL_REVIEW_AGENTS lists the commands that count as an agent running in a tmux pane.
 const AGENTS = (process.env.EDITORIAL_REVIEW_AGENTS ?? "claude").split(",").map((s) => s.trim());
 
 const tmux = realTmux(AGENTS);
 const connections = new Connections(core, tmux);
-const prompts = new Prompts(core, tmux, (scenario) => join(SCENARIOS, scenario, "spec.md"));
+const prompts = new Prompts(core, tmux, (scenario) => scenarios.specPath(scenario));
 prompts.rederive();
 prompts.start();
 const events = new Events();
 const unwatch = connections.watch((list) => events.publish({ event: "connections", data: list }));
 
+const api = createApi(core, connections, scenarios, prompts, events);
 const app = new Hono();
-app.get("/", (c) => c.text("editorial_review"));
-app.route("/api", createApi(core, connections, scenarios, prompts, events));
+app.route("/api", api);
 
 serve({ fetch: app.fetch, hostname: HOST, port: PORT }, () => {
   console.log(`listening on http://${HOST}:${PORT}, database ${DB_PATH}, scenarios ${SCENARIOS}`);

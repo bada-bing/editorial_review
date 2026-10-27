@@ -1,4 +1,5 @@
 import { Core, openDatabase } from "@editorial-review/core";
+import { COMMIT_TEMPLATES, commitXml, templatesFor } from "@editorial-review/core/fixtures";
 import { strict as assert } from "node:assert";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -12,10 +13,10 @@ import { Scenarios } from "./scenarios.ts";
 import { fakeTmux } from "./tmux.fake.ts";
 
 const setup = () => {
-  const core = new Core(openDatabase(":memory:"));
+  const core = new Core(openDatabase(":memory:"), templatesFor);
   const root = mkdtempSync(join(tmpdir(), "scenarios-"));
   mkdirSync(join(root, "commit", "examples"), { recursive: true });
-  writeFileSync(join(root, "commit", "spec.md"), "# Commit message\n");
+  writeFileSync(join(root, "commit", "spec.md"), `# Commit message\n\n## Structure\n\n\`\`\`template\n${COMMIT_TEMPLATES}\`\`\`\n`);
   writeFileSync(join(root, "commit", "examples", "E1.md"), "---\nverdict: good\n---\n");
   const tmux = fakeTmux({ "%1": { id: "@1", name: "WFC-1145:edit" }, "%2": { id: "@2", name: "10x_05:assistant" } });
   const prompts = new Prompts(core, tmux, (s) => `${root}/${s}/spec.md`);
@@ -35,24 +36,28 @@ describe("the API", () => {
     const { call } = setup();
     let r = await call("POST", "/texts", { scenario: "commit" }, "%1");
     assert.equal(r.status, 201);
-    const { id } = (await r.json()) as { id: number };
+    const { id } = (await r.json()) as { id: string };
 
     r = await call("GET", `/texts/${id}`);
-    assert.deepEqual(((await r.json()) as { writer: unknown }).writer, { connection: 1 });
+    const writer = (await (await call("GET", "/connections")).json()) as { id: string }[];
+    assert.deepEqual(((await r.json()) as { writer: unknown }).writer, { connection: writer[0]!.id });
 
-    r = await call("POST", `/texts/${id}/drafts`, { content: "scope: Summary\\\n\nOne.\nTwo." }, "%1");
+    r = await call("POST", `/texts/${id}/drafts`, { xml: commitXml("scope: Summary", ["One.", "Two."]) }, "%1");
     assert.deepEqual(await r.json(), { version: 1 });
+    const draft0 = (await (await call("GET", `/texts/${id}/drafts/latest`)).json()) as { rows: { id: string; text: string }[] };
+    const two = draft0.rows.find((x) => x.text === "Two.")!.id;
 
-    r = await call("POST", `/texts/${id}/comments`, { content: "shorter", line: 3 });
-    const { id: commentId } = (await r.json()) as { id: number };
+    r = await call("POST", `/texts/${id}/comments`, { content: "shorter", lineId: two });
+    const { id: commentId } = (await r.json()) as { id: string };
     r = await call("POST", `/texts/${id}/comments`, { content: "like this?", replyTo: commentId }, "%1");
     assert.equal(r.status, 201);
     r = await call("GET", `/texts/${id}/drafts/latest`);
     const draft = (await r.json()) as { threads: { comments: { author: string }[] }[] };
     assert.deepEqual(draft.threads[0]!.comments.map((c) => c.author), ["me", "WFC-1145:edit"]);
 
-    r = await call("POST", `/texts/${id}/amendments`, { line: 4, lines: ["Two, amended."] });
+    r = await call("POST", `/texts/${id}/lines/${two}`, { lines: ["Two, amended."] });
     assert.deepEqual(await r.json(), { version: 2 });
+    assert.equal(await (await call("GET", `/texts/${id}/drafts/latest/output`)).text(), "scope: Summary\n\n- One.\n  Two, amended.\n");
 
     r = await call("GET", `/texts/${id}/result`);
     assert.equal(r.status, 409);
@@ -61,14 +66,14 @@ describe("the API", () => {
     r = await call("POST", `/texts/${id}/approve`);
     assert.equal(r.status, 204);
     r = await call("GET", `/texts/${id}/result`);
-    assert.equal(await r.text(), "scope: Summary\n\nOne. Two, amended.\n");
+    assert.equal(await r.text(), "scope: Summary\n\n- One.\n  Two, amended.\n");
     assert.deepEqual(await (await call("GET", "/texts")).json(), []);
   });
 
   it("refuses to an agent what is mine, with the error as JSON", async () => {
     const { call } = setup();
-    const { id } = (await (await call("POST", "/texts", { scenario: "commit" }, "%1")).json()) as { id: number };
-    await call("POST", `/texts/${id}/drafts`, { content: "a" }, "%1");
+    const { id } = (await (await call("POST", "/texts", { scenario: "commit" }, "%1")).json()) as { id: string };
+    await call("POST", `/texts/${id}/drafts`, { xml: commitXml("a", ["b"]) }, "%1");
     const r = await call("POST", `/texts/${id}/approve`, undefined, "%1");
     assert.equal(r.status, 403);
     assert.deepEqual(await r.json(), { error: "Forbidden", message: "an agent may not approve a text" });
@@ -78,22 +83,25 @@ describe("the API", () => {
 
   it("maps the other errors to their statuses", async () => {
     const { call } = setup();
-    assert.equal((await call("GET", "/texts/99")).status, 404);
+    assert.equal((await call("GET", "/texts/00000099")).status, 404);
+    assert.equal((await call("GET", "/texts/99")).status, 400);
     assert.equal((await call("POST", "/texts", { scenario: "slack" })).status, 404);
     assert.equal((await call("POST", "/texts", {})).status, 400);
-    const { id } = (await (await call("POST", "/texts", { scenario: "commit", writer: "me" })).json()) as { id: number };
+    const { id } = (await (await call("POST", "/texts", { scenario: "commit", writer: "me" })).json()) as { id: string };
     assert.equal((await call("POST", `/texts/${id}/approve`)).status, 409);
-    assert.equal((await call("POST", `/texts/${id}/comments`, { content: "x", line: 1 })).status, 409);
+    assert.equal((await call("POST", `/texts/${id}/comments`, { content: "x" })).status, 409);
+    assert.equal((await call("POST", `/texts/${id}/drafts`, { xml: "<message/>" })).status, 400);
   });
 
   it("requests and submits reviews", async () => {
     const { call } = setup();
-    const { id } = (await (await call("POST", "/texts", { scenario: "commit" }, "%1")).json()) as { id: number };
-    await call("POST", `/texts/${id}/drafts`, { content: "a" }, "%1");
-    const reviewer = (await (await call("GET", "/connections")).json()) as unknown[];
-    assert.equal(reviewer.length, 1);
+    const { id } = (await (await call("POST", "/texts", { scenario: "commit" }, "%1")).json()) as { id: string };
+    await call("POST", `/texts/${id}/drafts`, { xml: commitXml("a", ["b"]) }, "%1");
+    assert.equal(((await (await call("GET", "/connections")).json()) as unknown[]).length, 1);
     await call("GET", "/texts", undefined, "%2"); // the reviewer's window reaches the server
-    assert.equal((await call("POST", `/texts/${id}/reviews`, { reviewer: 2 })).status, 201);
+    const rows = (await (await call("GET", "/connections")).json()) as { id: string; label: string }[];
+    const reviewer = rows.find((r) => r.label === "10x_05:assistant")!.id;
+    assert.equal((await call("POST", `/texts/${id}/reviews`, { reviewer })).status, 201);
     assert.equal((await call("POST", `/texts/${id}/reviews/submit`)).status, 204);
     assert.equal(((await (await call("GET", `/texts/${id}`)).json()) as { state: string }).state, "in review");
     assert.equal((await call("POST", `/texts/${id}/reviews/submit`, undefined, "%2")).status, 204);
@@ -103,8 +111,9 @@ describe("the API", () => {
   it("serves the scenarios", async () => {
     const { call } = setup();
     assert.deepEqual(await (await call("GET", "/scenarios")).json(), ["commit"]);
-    const s = (await (await call("GET", "/scenarios/commit")).json()) as { spec: string; examples: Record<string, string> };
-    assert.equal(s.spec, "# Commit message\n");
+    const s = (await (await call("GET", "/scenarios/commit")).json()) as { spec: string; examples: Record<string, string>; structure: string };
+    assert.match(s.spec, /^# Commit message\n/);
+    assert.equal(s.structure, COMMIT_TEMPLATES);
     assert.deepEqual(Object.keys(s.examples), ["E1"]);
     assert.equal((await call("GET", "/scenarios/slack")).status, 404);
   });
@@ -120,16 +129,16 @@ describe("the event stream", () => {
     const decoder = new TextDecoder();
     const next = async () => decoder.decode((await reader.read()).value);
 
-    assert.match(await next(), /^event: connections\ndata: \[\{"id":1,/);
+    assert.match(await next(), /^event: connections\ndata: \[\{"id":"[0-9a-f]{8}",/);
 
-    const { id } = (await (await call("POST", "/texts", { scenario: "commit" }, "%1")).json()) as { id: number };
-    assert.equal(await next(), `event: text\ndata: {"id":${id},"state":"drafting","latestVersion":null}\n\n`);
+    const { id } = (await (await call("POST", "/texts", { scenario: "commit" }, "%1")).json()) as { id: string };
+    assert.equal(await next(), `event: text\ndata: {"id":"${id}","state":"drafting","latestVersion":null}\n\n`);
 
-    await call("POST", `/texts/${id}/drafts`, { content: "a" }, "%1");
-    assert.equal(await next(), `event: text\ndata: {"id":${id},"state":"in review","latestVersion":1}\n\n`);
+    await call("POST", `/texts/${id}/drafts`, { xml: commitXml("a", ["b"]) }, "%1");
+    assert.equal(await next(), `event: text\ndata: {"id":"${id}","state":"in review","latestVersion":1}\n\n`);
 
     await call("DELETE", `/texts/${id}`);
-    assert.equal(await next(), `event: text\ndata: {"id":${id},"dropped":true}\n\n`);
+    assert.equal(await next(), `event: text\ndata: {"id":"${id}","dropped":true}\n\n`);
     await reader.cancel();
   });
 });

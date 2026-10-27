@@ -1,11 +1,12 @@
 import { Core, openDatabase } from "@editorial-review/core";
+import { COMMIT_TEMPLATES, commitXml, templatesFor } from "@editorial-review/core/fixtures";
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import { Connections } from "./connections.ts";
 import { fakeTmux } from "./tmux.fake.ts";
 
 const setup = () => {
-  const core = new Core(openDatabase(":memory:"));
+  const core = new Core(openDatabase(":memory:"), templatesFor);
   const tmux = fakeTmux({
     "%1": { id: "@1", name: "WFC-1145:edit", state: "busy" },
     "%2": { id: "@2", name: "10x_05:assistant" },
@@ -18,8 +19,9 @@ describe("connections", () => {
   it("is established by a pane's first request, for the pane's window, labelled by the window's name", async () => {
     const { connections } = setup();
     const c = await connections.fromPane("%1");
-    assert.deepEqual(c, { id: 1, target: "@1", label: "WFC-1145:edit" });
-    assert.equal((await connections.fromPane("%1")).id, 1);
+    assert.match(c.id, /^[0-9a-f]{8}$/);
+    assert.deepEqual([c.target, c.label], ["@1", "WFC-1145:edit"]);
+    assert.equal((await connections.fromPane("%1")).id, c.id);
   });
 
   it("reports each connection's state from its window", async () => {
@@ -49,7 +51,7 @@ describe("connections", () => {
   it("creates a connection for an unknown label", async () => {
     const { connections } = setup();
     const c = await connections.reconnectAs("reviewer:fable", "%2");
-    assert.deepEqual(c, { id: 1, target: "@2", label: "reviewer:fable" });
+    assert.deepEqual([c.target, c.label], ["@2", "reviewer:fable"]);
   });
 
   it("offers the agent windows that are not yet connections", async () => {
