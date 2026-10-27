@@ -9,7 +9,7 @@ export class CoreError extends Error {
 }
 
 export class NotFound extends CoreError {
-  constructor(what: string, id: number) {
+  constructor(what: string, id: string | number) {
     super("NotFound", `no ${what} with id ${id}`);
   }
 }
@@ -22,14 +22,14 @@ export class NotYourTurn extends CoreError {
 }
 
 export class TextApproved extends CoreError {
-  constructor(id: number) {
+  constructor(id: string) {
     super("TextApproved", `text ${id} is approved and accepts no change`);
   }
 }
 
 /** A requested review is still open, so the draft it reads must not change. */
 export class ReviewRunning extends CoreError {
-  constructor(id: number) {
+  constructor(id: string) {
     super("ReviewRunning", `a review of text ${id} is still running`);
   }
 }
@@ -42,7 +42,7 @@ export class Invalid extends CoreError {
 }
 
 export class NotApproved extends CoreError {
-  constructor(id: number, state: string) {
+  constructor(id: string, state: string) {
     super("NotApproved", `text ${id} is ${state}, not approved`);
   }
 }

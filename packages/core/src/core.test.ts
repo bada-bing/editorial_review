@@ -1,10 +1,11 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import { Core } from "./core.ts";
+import { commitXml, templatesFor } from "./fixtures.ts";
 import { openDatabase } from "./db.ts";
 import { NotFound } from "./errors.ts";
 
-const core = () => new Core(openDatabase(":memory:"));
+const core = () => new Core(openDatabase(":memory:"), templatesFor);
 
 describe("connections", () => {
   it("finds a connection again by its target", () => {
@@ -38,9 +39,11 @@ describe("texts", () => {
     assert.deepEqual(t.waitsOn, [{ actor: { connection: w }, role: "writer" }]);
   });
 
-  it("opens a text with me as the writer", () => {
+  it("opens a text with me as the writer, under an eight-character id", () => {
     const c = core();
-    const t = c.getText(c.openText("me", "slack", "me"));
+    const id = c.openText("me", "slack", "me");
+    assert.match(id, /^[0-9a-f]{8}$/);
+    const t = c.getText(id);
     assert.equal(t.writer, "me");
     assert.deepEqual(t.waitsOn, [{ actor: "me", role: "writer" }]);
   });
