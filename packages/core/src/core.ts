@@ -80,6 +80,8 @@ export interface TextState {
   state: State;
   /** Who the text waits on; empty once approved. */
   waitsOn: { actor: Actor; role: "writer" | "reviewer" }[];
+  /** Every review of the current draft, mine included once recorded, and whether it is submitted. */
+  reviews: { actor: Actor; submitted: boolean }[];
 }
 
 const toActor = (connectionId: string | null): Actor =>
@@ -523,6 +525,9 @@ export class Core {
     const waits = this.db
       .prepare("SELECT connection_id, role FROM text_waits_on WHERE text_id = ?")
       .all(row.text_id) as unknown as { connection_id: string | null; role: "writer" | "reviewer" }[];
+    const reviews = this.db
+      .prepare("SELECT r.reviewer_connection_id, r.submitted_at FROM review r JOIN latest_draft l ON l.id = r.draft_id WHERE l.text_id = ? ORDER BY r.id")
+      .all(row.text_id) as unknown as { reviewer_connection_id: string | null; submitted_at: string | null }[];
     return {
       id: row.text_id,
       scenario: row.scenario,
@@ -533,6 +538,7 @@ export class Core {
       latestVersion: row.latest_version,
       state: row.state,
       waitsOn: waits.map((w) => ({ actor: toActor(w.connection_id), role: w.role })),
+      reviews: reviews.map((r) => ({ actor: toActor(r.reviewer_connection_id), submitted: r.submitted_at !== null })),
     };
   }
 }

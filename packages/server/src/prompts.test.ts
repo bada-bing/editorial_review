@@ -133,14 +133,14 @@ describe("prompts", () => {
     assert.equal(prompts.pending(writer), 0);
   });
 
-  it("sends the result to the one that opened the text, not to its writer", async () => {
+  it("sends the result to the one that opened the text, and tells its writer the text is approved", async () => {
     const { core, tmux, prompts, writer, reviewer } = await setup();
     const id = core.openText({ connection: reviewer }, "commit", { connection: writer });
     core.submitDraft({ connection: writer }, id, commitXml("a", ["b"]));
     core.approve("me", id);
     prompts.result(id);
     await prompts.deliver();
-    assert.deepEqual(tmux.typed.map(([t]) => t), ["@2"]);
+    assert.deepEqual(tmux.typed.map(([t, l]) => [t, l.split(".")[0]]), [["@2", `Text ${id} is approved`], ["@1", `Text ${id}, which you wrote, is approved`]]);
   });
 
   it("never prompts for a text I write", async () => {

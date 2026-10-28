@@ -58,14 +58,17 @@ export function createUi(call: Call): Hono {
     const add = (actor: TextState["writer"], role: Participant["role"]) => {
       if (participants.some((p) => sameActor(p.actor, actor))) return;
       const waitedOn = t.waitsOn.some((w) => sameActor(w.actor, actor));
-      if (actor === "me") participants.push({ actor, label: "you", state: "you", role: role === "writer" ? "writer" : "reviewer", waitedOn });
+      const done = t.reviews.some((r) => sameActor(r.actor, actor) && r.submitted);
+      if (actor === "me") participants.push({ actor, label: "you", state: "you", role: role === "writer" ? "writer" : "reviewer", waitedOn, done });
       else {
         const row = rows.find((r) => r.id === actor.connection);
-        participants.push({ actor, label: row?.label ?? `connection ${actor.connection}`, state: row?.state ?? "gone", role, waitedOn, ...(row?.pending ? { pending: row.pending } : {}) });
+        participants.push({ actor, label: row?.label ?? `connection ${actor.connection}`, state: row?.state ?? "gone", role, waitedOn, done, ...(row?.pending ? { pending: row.pending } : {}) });
       }
     };
     add(t.writer, "writer");
     if (t.writer !== "me") add("me", "reviewer");
+    // Every reviewer of the current draft, the ones still reviewing and the ones done.
+    for (const r of t.reviews) add(r.actor, "reviewer");
     for (const w of t.waitsOn) if (w.role === "reviewer") add(w.actor, "reviewer");
     const candidates: Candidate[] = [
       ...rows.filter((r) => !sameActor({ connection: r.id }, t.writer) && r.state !== "gone").map((r) => ({ value: `c:${r.id}`, label: r.label })),

@@ -10,6 +10,8 @@ export interface Participant {
   state: "busy" | "waiting" | "idle" | "gone" | "you";
   role: "writer" | "reviewer" | "you";
   waitedOn: boolean;
+  /** For a reviewer: its review of the current draft is submitted. */
+  done?: boolean;
   pending?: number;
 }
 
@@ -136,7 +138,11 @@ ${draft ? html`<div class="split">
 const stateWord: Record<Participant["state"], string> = { busy: "working", waiting: "ready", idle: "ready", gone: "gone", you: "" };
 
 function participantView(p: Participant): Html {
-  const facts = [...(p.state === "you" ? [] : [stateWord[p.state]]), ...(p.pending ? [`${p.pending} prompt${p.pending === 1 ? "" : "s"} pending`] : [])];
+  const facts = [
+    ...(p.state === "you" ? [] : [stateWord[p.state]]),
+    ...(p.role === "reviewer" ? [p.done ? "review submitted" : p.waitedOn ? "reviewing" : ""] : []),
+    ...(p.pending ? [`${p.pending} prompt${p.pending === 1 ? "" : "s"} pending`] : []),
+  ].filter(Boolean);
   return html`<span class="participant ${p.role === "you" ? "you" : ""}">${p.label}${facts.length ? html` <span class="state ${p.state}">${facts.join(", ")}</span>` : ""}</span>`;
 }
 

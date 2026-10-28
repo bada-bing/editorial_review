@@ -1,7 +1,7 @@
 import type { ConnectionId, Core, TextId } from "@editorial-review/core";
 import type { Tmux } from "./tmux.ts";
 
-export type PromptKind = "draft" | "redraft" | "ask" | "review" | "result" | "dropped";
+export type PromptKind = "draft" | "redraft" | "ask" | "review" | "result" | "approved" | "dropped";
 
 export interface Prompt {
   connection: ConnectionId;
@@ -80,6 +80,7 @@ export class Prompts {
       case "ask":
         return t.state !== "in review";
       case "result":
+      case "approved":
         return t.state !== "approved";
       case "dropped":
         return false;
@@ -123,10 +124,11 @@ export class Prompts {
     this.queue(reviewer, text, "review");
   }
 
-  /** The result goes to whoever opened the text: the one that needs it. */
+  /** The result goes to whoever opened the text, the one that needs it; a writer that is not the opener is told the text is approved. */
   result(text: TextId): void {
     const t = this.core.getText(text);
     if (t.opener !== "me") this.queue(t.opener.connection, text, "result");
+    if (t.writer !== "me" && !(t.opener !== "me" && t.opener.connection === t.writer.connection)) this.queue(t.writer.connection, text, "approved");
   }
 
   /** Called before the drop, while the text still says who it waits on. Whatever was still queued for the text goes. */
@@ -162,6 +164,8 @@ export class Prompts {
         return `Review text ${text} of the ${t.scenario} scenario against its spec at ${spec}. Read the draft with: editorial get-draft ${text}. Comment on a line by its id with: editorial add-comment ${text} --line <id> < comment. When done: editorial submit-review ${text}`;
       case "result":
         return `Text ${text} is approved. Take it with: editorial get-result ${text}, and use it for what it was opened for.`;
+      case "approved":
+        return `Text ${text}, which you wrote, is approved. Nothing more is owed on it.`;
       case "dropped":
         return `Text ${text} was dropped. Nothing more to do with it.`;
     }

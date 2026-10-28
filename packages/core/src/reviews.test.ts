@@ -81,6 +81,7 @@ describe("requestReview and submitReview", () => {
     assert.deepEqual(core.getText(id).waitsOn.map((w) => w.actor), [{ connection: reviewer }]);
     core.submitReview({ connection: reviewer }, id);
     assert.equal(core.getText(id).state, "drafting");
+    assert.deepEqual(core.getText(id).reviews, [{ actor: { connection: reviewer }, submitted: true }, { actor: "me", submitted: true }]);
   });
 
   it("requests a review once per draft", () => {
