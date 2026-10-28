@@ -33,11 +33,16 @@ const version = (s: string): number => {
 
 const isId = (v: unknown): v is string => typeof v === "string" && /^[0-9a-f]{8}$/.test(v);
 
-const parseActor = (v: unknown, fallback: Actor): Actor => {
+const parseActor = (v: unknown, fallback: Actor, byLabel: (label: string) => string | undefined): Actor => {
   if (v === undefined) return fallback;
   if (v === "me") return "me";
   if (isId(v)) return { connection: v };
-  throw new CoreError("Invalid", "writer is \"me\" or a connection id");
+  if (typeof v === "string") {
+    const found = byLabel(v);
+    if (found) return { connection: found };
+    throw new CoreError("NotFound", `no connection labelled ${v}`);
+  }
+  throw new CoreError("Invalid", "writer is \"me\", a connection id or a connection's label");
 };
 
 /**
@@ -79,7 +84,8 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
     if (!body.scenario) throw new CoreError("Invalid", "scenario is required");
     if (!scenarios.has(body.scenario)) throw new CoreError("NotFound", `no scenario named ${body.scenario}`);
     const actor = c.get("actor");
-    const textId = core.openText(actor, body.scenario, parseActor(body.writer, actor), body.context ?? {});
+    const writer = parseActor(body.writer, actor, (label) => core.findConnection({ label })?.id);
+    const textId = core.openText(actor, body.scenario, writer, body.context ?? {});
     prompts.draft(textId);
     changed(textId);
     return c.json({ id: textId }, 201);
@@ -168,12 +174,12 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
 
   // Ask: one thread sent to the writer, who answers with a reply in it.
   api.post("/texts/:id/ask", async (c) => {
-    if (c.get("actor") !== "me") throw new CoreError("Forbidden", "an agent may not ask the writer");
     const { commentId } = (await c.req.json()) as { commentId?: string };
     if (!isId(commentId)) throw new CoreError("Invalid", "commentId is a comment id");
-    const t = core.getText(id(c.req.param("id")));
-    if (t.state !== "in review") throw new CoreError("NotYourTurn", `cannot ask while the text is ${t.state}`);
-    prompts.ask(t.id, commentId);
+    const textId = id(c.req.param("id"));
+    core.ask(c.get("actor"), textId, commentId);
+    prompts.ask(textId, commentId);
+    changed(textId);
     return c.body(null, 202);
   });
 

@@ -123,9 +123,10 @@ export class Prompts {
     this.queue(reviewer, text, "review");
   }
 
+  /** The result goes to whoever opened the text: the one that needs it. */
   result(text: TextId): void {
     const t = this.core.getText(text);
-    if (t.writer !== "me") this.queue(t.writer.connection, text, "result");
+    if (t.opener !== "me") this.queue(t.opener.connection, text, "result");
   }
 
   /** Called before the drop, while the text still says who it waits on. Whatever was still queued for the text goes. */

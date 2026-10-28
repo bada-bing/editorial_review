@@ -3,7 +3,7 @@ import { describe, it } from "node:test";
 import { Core } from "./core.ts";
 import { commitXml, templatesFor } from "./fixtures.ts";
 import { openDatabase } from "./db.ts";
-import { Invalid, NotFound, NotYourTurn } from "./errors.ts";
+import { Forbidden, Invalid, NotFound, NotYourTurn } from "./errors.ts";
 
 const setup = () => {
   const core = new Core(openDatabase(":memory:"), templatesFor);
@@ -43,6 +43,31 @@ describe("addComment", () => {
     const { core, id, one } = setup();
     core.submitReview("me", id);
     assert.throws(() => core.addComment("me", id, { author: "miki", content: "late", lineId: one }), NotYourTurn);
+  });
+});
+
+describe("ask", () => {
+  it("makes the text wait on the writer and blocks my review until the writer replies in the thread", () => {
+    const { core, id, writer, two } = setup();
+    const c = core.addComment("me", id, { author: "miki", content: "which two?", lineId: two });
+    core.ask("me", id, c);
+    assert.deepEqual(core.getText(id).waitsOn.map((w) => [w.role, w.actor]), [["reviewer", "me"], ["writer", { connection: writer }]]);
+    assert.equal(core.getDraft(id).threads[0]!.comments[0]!.asked, true);
+    assert.throws(() => core.submitReview("me", id), (e: Error) => e instanceof NotYourTurn && /answer to an Ask/.test(e.message));
+    core.addComment("me", id, { author: "miki", content: "I mean these", replyTo: c }); // my own reply answers nothing
+    assert.throws(() => core.submitReview("me", id), NotYourTurn);
+    core.addComment({ connection: writer }, id, { author: "writer", content: "the two sentences", replyTo: c });
+    assert.deepEqual(core.getText(id).waitsOn.map((w) => w.role), ["reviewer"]);
+    assert.equal(core.getDraft(id).threads[0]!.comments[0]!.asked, undefined);
+    core.submitReview("me", id);
+    assert.equal(core.getText(id).state, "drafting");
+  });
+
+  it("is mine, on a comment of the current draft", () => {
+    const { core, id, two } = setup();
+    const c = core.addComment("me", id, { author: "miki", content: "x", lineId: two });
+    assert.throws(() => core.ask({ connection: "00000001" }, id, c), Forbidden);
+    assert.throws(() => core.ask("me", id, "00000000"), Invalid);
   });
 });
 

@@ -22,6 +22,8 @@ export type Origin = "submitted" | "amended";
 export interface Comment {
   id: CommentId;
   author: string;
+  /** Set by Ask; cleared by the writer's reply in the thread. */
+  asked?: boolean;
   /** The comment this one answers; null for a thread's first comment. */
   parentId: CommentId | null;
   content: string;
@@ -71,6 +73,8 @@ export interface TextState {
   scenario: string;
   context: Context;
   writer: Actor;
+  /** Who opened the text, and is told to take its result. */
+  opener: Actor;
   openedAt: string;
   latestVersion: number | null;
   state: State;
@@ -87,6 +91,7 @@ interface StateRow {
   scenario: string;
   context: string;
   writer_connection_id: string | null;
+  opener_connection_id: string | null;
   opened_at: string;
   latest_version: number | null;
   state: State;
@@ -134,6 +139,7 @@ export class Core {
       const holder = this.findConnection({ target });
       if (holder && holder.id !== id) {
         this.db.prepare("UPDATE text SET writer_connection_id = ? WHERE writer_connection_id = ?").run(id, holder.id);
+        this.db.prepare("UPDATE text SET opener_connection_id = ? WHERE opener_connection_id = ?").run(id, holder.id);
         this.db.prepare("UPDATE review SET reviewer_connection_id = ? WHERE reviewer_connection_id = ?").run(id, holder.id);
         this.db.prepare("DELETE FROM connection WHERE id = ?").run(holder.id);
       }
@@ -161,17 +167,17 @@ export class Core {
 
   /** Opens a text for any writer; it waits on that writer for the first draft. */
   openText(actor: Actor, scenario: string, writer: Actor, context: Context = {}): TextId {
-    void actor; // anyone opens a text, for themselves or for someone else
+    // Anyone opens a text, for themselves or for someone else; the opener is who takes the result.
     const id = newId();
     this.db
-      .prepare("INSERT INTO text (id, scenario, writer_connection_id, context) VALUES (?, ?, ?, ?)")
-      .run(id, scenario, toColumn(writer), JSON.stringify(context));
+      .prepare("INSERT INTO text (id, scenario, writer_connection_id, opener_connection_id, context) VALUES (?, ?, ?, ?, ?)")
+      .run(id, scenario, toColumn(writer), toColumn(actor), JSON.stringify(context));
     return id;
   }
 
   getText(id: TextId): TextState {
     const row = this.db
-      .prepare("SELECT s.*, t.context, t.opened_at FROM text_state s JOIN text t ON t.id = s.text_id WHERE s.text_id = ?")
+      .prepare("SELECT s.*, t.context, t.opened_at, t.opener_connection_id FROM text_state s JOIN text t ON t.id = s.text_id WHERE s.text_id = ?")
       .get(id) as StateRow | undefined;
     if (!row) throw new NotFound("text", id);
     return this.toState(row);
@@ -181,7 +187,7 @@ export class Core {
   listOpenTexts(): TextState[] {
     const rows = this.db
       .prepare(
-        "SELECT s.*, t.context, t.opened_at FROM text_state s JOIN text t ON t.id = s.text_id WHERE s.state <> 'approved' ORDER BY t.opened_at, t.rowid",
+        "SELECT s.*, t.context, t.opened_at, t.opener_connection_id FROM text_state s JOIN text t ON t.id = s.text_id WHERE s.state <> 'approved' ORDER BY t.opened_at, t.rowid",
       )
       .all() as unknown as StateRow[];
     return rows.map((r) => this.toState(r));
@@ -294,14 +300,14 @@ export class Core {
     const known = new Map(this.commentsOf(id).map((c) => [c.id, c]));
     for (const r of compared.rows) for (const a of r.answers) if (known.has(a)) answered[a] = { author: known.get(a)!.author, content: known.get(a)!.content };
     const comments = this.db
-      .prepare("SELECT id, author, parent_id, line_id, content, created_at FROM comment WHERE draft_id = ? ORDER BY rowid")
-      .all(row.id) as unknown as { id: string; author: string; parent_id: string | null; line_id: string | null; content: string; created_at: string }[];
+      .prepare("SELECT id, author, parent_id, line_id, content, created_at, asked_at, answered_at FROM comment WHERE draft_id = ? ORDER BY rowid")
+      .all(row.id) as unknown as { id: string; author: string; parent_id: string | null; line_id: string | null; content: string; created_at: string; asked_at: string | null; answered_at: string | null }[];
     // A reply joins the thread of the comment it answers; a parent always
     // precedes its replies in creation order, so one pass resolves every thread.
     const threads = new Map<string, Thread>();
     const threadOf = new Map<string, string>();
     for (const c of comments) {
-      const comment: Comment = { id: c.id, author: c.author, parentId: c.parent_id, content: c.content, createdAt: c.created_at };
+      const comment: Comment = { id: c.id, author: c.author, parentId: c.parent_id, content: c.content, createdAt: c.created_at, ...(c.asked_at && !c.answered_at ? { asked: true } : {}) };
       const root = c.parent_id === null ? c.id : threadOf.get(c.parent_id)!;
       threadOf.set(c.id, root);
       if (c.parent_id === null) threads.set(c.id, { lineId: c.line_id, comments: [comment] });
@@ -327,7 +333,7 @@ export class Core {
    * thread. An Ask is answered the same way, by a reply.
    */
   addComment(actor: Actor, id: TextId, comment: NewComment): CommentId {
-    void actor; // anyone in the conversation may comment; the author label says who
+    // Anyone in the conversation may comment; the author label says who.
     const t = this.getText(id);
     if (t.state === "approved") throw new TextApproved(id);
     if (t.state !== "in review") throw new NotYourTurn("comment", t.state);
@@ -341,10 +347,36 @@ export class Core {
       if (!parent) throw new Invalid(`comment ${comment.replyTo} is not on the current draft`);
     }
     const commentId = newId();
-    this.db
-      .prepare("INSERT INTO comment (id, draft_id, author, line_id, parent_id, content) VALUES (?, ?, ?, ?, ?, ?)")
-      .run(commentId, draftId, comment.author, comment.lineId ?? null, comment.replyTo ?? null, comment.content);
-    return commentId;
+    return this.transaction(() => {
+      this.db
+        .prepare("INSERT INTO comment (id, draft_id, author, line_id, parent_id, content) VALUES (?, ?, ?, ?, ?, ?)")
+        .run(commentId, draftId, comment.author, comment.lineId ?? null, comment.replyTo ?? null, comment.content);
+      // The writer's reply answers whatever was asked in that thread.
+      if (comment.replyTo !== undefined && sameActor(actor, t.writer)) {
+        const thread = this.threadRoot(comment.replyTo);
+        this.db
+          .prepare("UPDATE comment SET answered_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE asked_at IS NOT NULL AND answered_at IS NULL AND draft_id = ? AND (id = ? OR parent_id = ? OR id IN (SELECT id FROM comment WHERE parent_id = ?))")
+          .run(draftId, thread, thread, thread);
+      }
+      return commentId;
+    });
+  }
+
+  /**
+   * Ask: sends a thread to the writer, who owes it a reply. The thread's
+   * comment is marked asked, the text waits on the writer too, and my review
+   * cannot be submitted until the writer has replied. Mine only.
+   */
+  ask(actor: Actor, id: TextId, commentId: CommentId): void {
+    if (actor !== "me") throw new Forbidden("ask the writer");
+    const t = this.getText(id);
+    if (t.state === "approved") throw new TextApproved(id);
+    if (t.state !== "in review") throw new NotYourTurn("ask", t.state);
+    const draftId = this.draftRowId(id, t.latestVersion!);
+    const r = this.db
+      .prepare("UPDATE comment SET asked_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now'), answered_at = NULL WHERE id = ? AND draft_id = ?")
+      .run(commentId, draftId);
+    if (r.changes === 0) throw new Invalid(`comment ${commentId} is not on the current draft`);
   }
 
   /** Asks a connection to review the current draft; the text then waits on it too. Only in review. */
@@ -378,6 +410,10 @@ export class Core {
         .prepare("SELECT 1 FROM review WHERE draft_id = ? AND reviewer_connection_id IS NULL")
         .get(draftId);
       if (done) throw new NotYourTurn("submit my review again", "waiting on a requested reviewer");
+      const asked = this.db
+        .prepare("SELECT 1 FROM comment WHERE draft_id = ? AND asked_at IS NOT NULL AND answered_at IS NULL")
+        .get(draftId);
+      if (asked) throw new NotYourTurn("submit my review", "waiting on the writer's answer to an Ask");
       this.db.prepare("INSERT INTO review (draft_id, submitted_at) VALUES (?, strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))").run(draftId);
       return;
     }
@@ -449,6 +485,16 @@ export class Core {
     if (r.changes === 0) throw new NotFound("text", id);
   }
 
+  /** The first comment of the thread a comment is in. */
+  private threadRoot(commentId: CommentId): CommentId {
+    let id = commentId;
+    for (;;) {
+      const row = this.db.prepare("SELECT parent_id FROM comment WHERE id = ?").get(id) as { parent_id: string | null } | undefined;
+      if (!row || row.parent_id === null) return id;
+      id = row.parent_id;
+    }
+  }
+
   private insertDraft(textId: TextId, version: Version, origin: Origin, content: string): number {
     const r = this.db
       .prepare("INSERT INTO draft (text_id, version, origin, content) VALUES (?, ?, ?, ?)")
@@ -482,6 +528,7 @@ export class Core {
       scenario: row.scenario,
       context: JSON.parse(row.context) as Context,
       writer: toActor(row.writer_connection_id),
+      opener: toActor(row.opener_connection_id),
       openedAt: row.opened_at,
       latestVersion: row.latest_version,
       state: row.state,

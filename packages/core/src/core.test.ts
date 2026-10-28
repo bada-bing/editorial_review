@@ -35,6 +35,7 @@ describe("texts", () => {
     assert.equal(t.scenario, "commit");
     assert.deepEqual(t.context, { diff: "+a" });
     assert.deepEqual(t.writer, { connection: w });
+    assert.deepEqual(t.opener, { connection: w });
     assert.equal(t.state, "drafting");
     assert.deepEqual(t.waitsOn, [{ actor: { connection: w }, role: "writer" }]);
   });
@@ -45,6 +46,7 @@ describe("texts", () => {
     assert.match(id, /^[0-9a-f]{8}$/);
     const t = c.getText(id);
     assert.equal(t.writer, "me");
+    assert.equal(t.opener, "me");
     assert.deepEqual(t.waitsOn, [{ actor: "me", role: "writer" }]);
   });
 

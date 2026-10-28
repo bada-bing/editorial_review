@@ -17,6 +17,7 @@ CREATE TABLE IF NOT EXISTS text (
   scenario             TEXT NOT NULL,
   context              TEXT NOT NULL DEFAULT '{}',  -- JSON object, item name to content
   writer_connection_id TEXT REFERENCES connection(id),
+  opener_connection_id TEXT REFERENCES connection(id),  -- who opened the text and takes its result; NULL is me
   approved_draft_id    INTEGER REFERENCES draft(id),
   opened_at            TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
 );
@@ -55,8 +56,15 @@ CREATE TABLE IF NOT EXISTS comment (
   line_id     TEXT,               -- the line's id; NULL on the whole draft; a reply carries none
   content     TEXT NOT NULL,
   created_at  TEXT NOT NULL DEFAULT (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+  asked_at    TEXT,               -- set by Ask: the writer owes this thread an answer
+  answered_at TEXT,               -- set when the writer replies in the thread
   CHECK (parent_id IS NULL OR line_id IS NULL)
 );
+
+-- A database from before these columns were recorded gets them.
+ALTER TABLE text ADD COLUMN opener_connection_id TEXT REFERENCES connection(id);
+ALTER TABLE comment ADD COLUMN asked_at TEXT;
+ALTER TABLE comment ADD COLUMN answered_at TEXT;
 
 -- The current draft of each text that has one.
 DROP VIEW IF EXISTS text_waits_on;
@@ -94,8 +102,9 @@ FROM text t
 LEFT JOIN latest_draft l ON l.text_id = t.id;
 
 -- Who each text waits on: the writer while drafting; while in review, me until
--- I submit my review, and every requested reviewer whose review is open;
--- nobody once approved. NULL is me.
+-- I submit my review, every requested reviewer whose review is open, and the
+-- writer while an Ask on the current draft awaits its answer; nobody once
+-- approved. NULL is me.
 CREATE VIEW text_waits_on AS
 SELECT s.text_id, s.writer_connection_id AS connection_id, 'writer' AS role
 FROM text_state s
@@ -111,5 +120,11 @@ UNION ALL
 SELECT s.text_id, r.reviewer_connection_id, 'reviewer'
 FROM text_state s
 JOIN review r ON r.draft_id = s.latest_draft_id AND r.submitted_at IS NULL
-WHERE s.state = 'in review' AND r.reviewer_connection_id IS NOT NULL;
+WHERE s.state = 'in review' AND r.reviewer_connection_id IS NOT NULL
+UNION ALL
+SELECT s.text_id, s.writer_connection_id, 'writer'
+FROM text_state s
+WHERE s.state = 'in review'
+  AND EXISTS (SELECT 1 FROM comment c
+              WHERE c.draft_id = s.latest_draft_id AND c.asked_at IS NOT NULL AND c.answered_at IS NULL);
 `;

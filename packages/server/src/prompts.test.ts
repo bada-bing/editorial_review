@@ -72,7 +72,7 @@ describe("prompts", () => {
     assert.match(lines["@2"]!, new RegExp(`^Review text ${id} of the commit scenario`));
   });
 
-  it("tells the writer to draft again once the review is over, and to take the result once approved", async () => {
+  it("tells the writer to draft again once the review is over, and the opener to take the result once approved", async () => {
     const { core, tmux, prompts, id, writer } = await setup();
     core.submitDraft({ connection: writer }, id, commitXml("a", ["b"]));
     core.submitReview("me", id);
@@ -131,6 +131,16 @@ describe("prompts", () => {
     await prompts.deliver();
     assert.equal(tmux.typed.length, 0);
     assert.equal(prompts.pending(writer), 0);
+  });
+
+  it("sends the result to the one that opened the text, not to its writer", async () => {
+    const { core, tmux, prompts, writer, reviewer } = await setup();
+    const id = core.openText({ connection: reviewer }, "commit", { connection: writer });
+    core.submitDraft({ connection: writer }, id, commitXml("a", ["b"]));
+    core.approve("me", id);
+    prompts.result(id);
+    await prompts.deliver();
+    assert.deepEqual(tmux.typed.map(([t]) => t), ["@2"]);
   });
 
   it("never prompts for a text I write", async () => {
