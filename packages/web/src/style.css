@@ -1,0 +1,118 @@
+:root {
+  --text: #1f2328;
+  --muted: #656d76;
+  --background: #ffffff;
+  --rule: #d0d7de;
+  --link: #0969da;
+  --panel: #f6f8fa;
+  --tint: #ddf4ff;
+  --tint-edge: #54aeff;
+  --added: #dafbe1;
+  --removed: #ffebe9;
+  --waiting: #bf8700;
+  --busy: #0969da;
+  --gone: #cf222e;
+  --done: #1a7f37;
+  font-family: system-ui, sans-serif;
+  line-height: 1.5;
+  color: var(--text);
+  background: var(--background);
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --text: #e6edf3; --muted: #8d96a0; --background: #0d1117; --rule: #30363d; --link: #4493f8;
+    --panel: #161b22; --tint: #12263f; --tint-edge: #1f6feb; --added: #12351f; --removed: #3c1618;
+    --waiting: #d29922; --busy: #4493f8; --gone: #f85149; --done: #3fb950;
+  }
+}
+body { margin: 0; padding: 16px; }
+a { color: var(--link); }
+button, select, textarea, input { font: inherit; color: inherit; }
+button { background: var(--panel); border: 1px solid var(--rule); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
+button:disabled { opacity: 0.45; cursor: default; }
+button.primary { background: var(--tint); border-color: var(--tint-edge); }
+textarea { width: 100%; box-sizing: border-box; background: var(--background); border: 1px solid var(--rule); border-radius: 6px; padding: 6px; min-height: 4em; }
+.layout { display: grid; grid-template-columns: 240px minmax(0, 1fr); gap: 24px; }
+/* The draft and its output side by side, the headings on one row and line 1 level with row 1: same font, same line height, same top. */
+.split { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 24px; align-items: start; }
+.output { position: sticky; top: 16px; }
+/* The output as get-result prints it: one block, never folded, a scrollbar if the window is narrower. */
+#preview { margin: 0; padding: 0 12px; border-left: 1px solid var(--rule); font-family: ui-monospace, monospace; font-size: 0.85em; line-height: 1.5; white-space: pre; overflow-x: auto; color: var(--muted); }
+.below { display: grid; grid-template-columns: minmax(0, 1fr) 320px; gap: 24px; margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--rule); }
+.below .spec { max-height: 60vh; }
+.preview-pane h2 { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 8px; }
+/* The output exactly as get-result prints it: no folding, every line as long as it is, a scrollbar if the window is narrower. */
+#preview { margin: 0; padding: 12px; border: 1px solid var(--rule); border-radius: 8px; background: var(--panel); font-family: ui-monospace, monospace; font-size: 0.85em; white-space: pre; overflow-x: auto; min-height: 6em; min-width: 40ch; max-width: 82ch; }
+.column { position: sticky; top: 16px; align-self: start; max-height: calc(100vh - 32px); overflow-y: auto; display: flex; flex-direction: column; gap: 16px; }
+.widget { border: 1px solid var(--rule); border-radius: 8px; padding: 10px 12px; font-size: 0.9em; }
+.widget h2 { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 8px; }
+.widget ul { list-style: none; margin: 0; padding: 0; }
+.widget li { padding: 3px 0; }
+.widget li.current { font-weight: 600; }
+.muted { color: var(--muted); }
+.state { font-size: 0.85em; color: var(--muted); }
+.state.waiting { color: var(--waiting); } .state.busy { color: var(--busy); } .state.gone { color: var(--gone); } .state.idle { color: var(--done); }
+.header { display: flex; align-items: baseline; gap: 16px; flex-wrap: wrap; margin-bottom: 12px; }
+.header h1 { font-size: 1.1em; margin: 0; }
+.arrows a { text-decoration: none; padding: 0 6px; }
+.participants { display: flex; flex-direction: column; gap: 2px; font-size: 0.9em; }
+.participants .role { display: inline-block; width: 6em; color: var(--muted); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; }
+.participants .participant { margin-right: 12px; }
+.participants .you { font-weight: 600; }
+.controls { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 10px 0 16px; padding: 10px 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
+.controls form { display: inline-flex; gap: 6px; align-items: center; }
+.draft { display: flex; flex-direction: column; }
+/* A row: its number, the line as written in the same monospace as the output, and its marks. */
+.draft { overflow-x: auto; }
+/* A row is as wide as the widest line, so a long line never runs under the marks; the draft scrolls instead. */
+/* A row is exactly one output line high, so the two columns stay level until a thread pushes the rows down. */
+.line { display: grid; grid-template-columns: 2.5em max-content auto; gap: 12px; align-items: baseline; padding: 0 4px; border-radius: 4px; width: max-content; min-width: 100%; box-sizing: border-box; line-height: 1.5; font-size: 0.85em; }
+.line .text, .line .number, .line .marks { font-size: 1em; }
+.line:hover { background: var(--panel); }
+.line .number { color: var(--muted); text-align: right; font-variant-numeric: tabular-nums; }
+.line .text { font-family: ui-monospace, monospace; white-space: pre; line-height: 1.5; }
+.line .number, .line .marks { line-height: 1.5; }
+.line.heading { font-size: 0.75em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin-bottom: 4px; }
+.line.heading .text { font-family: system-ui, sans-serif; font-size: 1em; color: var(--muted); }
+.line.heading:hover { background: none; }
+.line .marks { display: inline-flex; gap: 6px; white-space: nowrap; }
+.line .text .cue { color: var(--muted); }
+.line .actions { visibility: hidden; display: inline-flex; gap: 4px; margin-left: 8px; }
+.line:hover .actions { visibility: visible; }
+.line .actions button { padding: 0 6px; font-size: 0.8em; line-height: 1.2; }
+.gap { height: calc(0.85em * 1.5); }
+.line.changed .text { background: var(--now-tint, #fff8c5); border-radius: 3px; }
+.line.new .text { background: var(--added); border-radius: 3px; }
+.line.removed .text { background: var(--removed); text-decoration: line-through; }
+.line .answers { color: var(--done); position: relative; cursor: default; }
+.line .answers .popover { display: none; position: absolute; right: 0; top: 1.6em; z-index: 2; width: 36ch; max-width: 60vw; padding: 8px 10px; background: var(--background); color: var(--text); border: 1px solid var(--rule); border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.12); font-family: system-ui, sans-serif; font-size: 1em; white-space: normal; line-height: 1.4; }
+.line .answers .popover .author { font-weight: 600; margin-right: 4px; }
+.line .answers:hover .popover { display: block; }
+.line .unasked { color: var(--waiting); font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.04em; margin-left: 6px; }
+.removed-lines { margin-top: 12px; }
+.removed-lines h3, .whole-draft h3 { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 8px; }
+.whole-draft { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--rule); }
+.whole-draft h3 { font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--muted); margin: 0 0 8px; }
+.threads { margin: 2px 0 6px 2.5em; display: flex; flex-direction: column; gap: 6px; }
+.thread { border-left: 3px solid var(--tint-edge); background: var(--panel); border-radius: 0 6px 6px 0; padding: 6px 10px; font-size: 0.92em; }
+.thread.whole { margin-left: 0; }
+.thread.asked { border-left-color: var(--waiting); }
+.thread .asked-mark { color: var(--waiting); font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 2px; }
+.comment { display: flex; gap: 8px; align-items: baseline; }
+.comment .author { font-weight: 600; font-size: 0.85em; white-space: nowrap; }
+.comment .body { white-space: pre-wrap; flex: 1; }
+.comment.reply { margin-left: 16px; }
+.thread .actions { display: flex; gap: 6px; margin-top: 4px; }
+.thread .actions button { padding: 0 6px; font-size: 0.8em; }
+.inline-form { margin: 4px 0 8px 2.5em; display: flex; flex-direction: column; gap: 6px; }
+.inline-form .row { display: flex; gap: 6px; }
+.versions li { display: flex; gap: 8px; align-items: baseline; }
+.versions li a { text-decoration: none; }
+.diff { font-family: ui-monospace, monospace; font-size: 0.85em; white-space: pre-wrap; border: 1px solid var(--rule); border-radius: 6px; padding: 8px; margin-top: 8px; }
+.diff .new { background: var(--added); } .diff .changed { background: var(--now-tint, #fff8c5); } .diff .removed { background: var(--removed); text-decoration: line-through; }
+.spec { white-space: pre-wrap; font-size: 0.85em; max-height: 50vh; overflow-y: auto; }
+.spec .example { cursor: pointer; }
+.example-view { margin-top: 8px; padding: 8px; border: 1px solid var(--rule); border-radius: 6px; white-space: pre-wrap; font-size: 0.85em; max-height: 40vh; overflow-y: auto; }
+.context dt { font-weight: 600; margin-top: 6px; } .context dd { margin: 0; white-space: pre-wrap; max-height: 12em; overflow-y: auto; }
+.empty { color: var(--muted); padding: 40px; text-align: center; }
+.error { color: var(--gone); margin: 8px 0; }

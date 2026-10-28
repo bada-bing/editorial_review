@@ -183,13 +183,20 @@ importers:
         specifier: workspace:*
         version: link:../server
 
-  packages/core: {}
+  packages/core:
+    dependencies:
+      fast-xml-parser:
+        specifier: 5.3.3
+        version: 5.3.3
 
   packages/server:
     dependencies:
       '@editorial-review/core':
         specifier: workspace:*
         version: link:../core
+      '@editorial-review/web':
+        specifier: workspace:*
+        version: link:../web
       '@hono/node-server':
         specifier: 2.1.5
         version: 2.1.5(hono@4.13.13)
@@ -197,7 +204,20 @@ importers:
         specifier: 4.13.13
         version: 4.13.13
 
-  packages/web: {}
+  packages/web:
+    dependencies:
+      '@editorial-review/core':
+        specifier: workspace:*
+        version: link:../core
+      hono:
+        specifier: 4.13.13
+        version: 4.13.13
+      htmx-ext-sse:
+        specifier: 2.2.4
+        version: 2.2.4
+      htmx.org:
+        specifier: 2.0.8
+        version: 2.0.8
 
 packages:
 
@@ -330,9 +350,25 @@ packages:
     cpu: [x64]
     os: [win32]
 
+  anynum@1.0.1:
+    resolution: {integrity: sha512-N6//FLET/tXYNM/F6ABca1oH6fWB+KlTt909Le28WMDBk8oaT4vY17DCrwg2MvmuqUKt3Ni4N5dGJ/EoBgcO6A==}
+
+  fast-xml-parser@5.3.3:
+    resolution: {integrity: sha512-2O3dkPAAC6JavuMm8+4+pgTk+5hoAs+CjZ+sWcQLkX9+/tHRuTkQh/Oaifr8qDmZ8iEHb771Ea6G8CdwkrgvYA==}
+    hasBin: true
+
   hono@4.13.13:
     resolution: {integrity: sha512-CQ46U0ZkAGmbT/4UxdzzGJpacP2IeKgY4a5/tOI9AABbpOMfK739wfDXmv1usCk+3RkKj1hQy4/fjhiwa2xlrA==}
     engines: {node: '>=16.9.0'}
+
+  htmx-ext-sse@2.2.4:
+    resolution: {integrity: sha512-LJmxVhykyflBWgh5PvbRidcyuqMHlgfajmmzumvKctv9puvsufeH6OaejSMZTNTnEI8O2wXXn4ZZtBdpEMqmEQ==}
+
+  htmx.org@2.0.8:
+    resolution: {integrity: sha512-fm297iru0iWsNJlBrjvtN7V9zjaxd+69Oqjh4F/Vq9Wwi2kFisLcrLCiv5oBX0KLfOX/zG8AUo9ROMU5XUB44Q==}
+
+  strnum@2.5.1:
+    resolution: {integrity: sha512-UM4nTLWzQiDBseVxUGxN0wJzIk0UU89Qi7pKXz9qISo+lhviJikTuikBsK/oFRlpvYHvSdz0TVoLyQ+sEpYwxA==}
 
   typescript@7.0.2:
     resolution: {integrity: sha512-8FYau96o3NKOhbjKi/qNvG/W5jhzxkbdm5sj9AbZ/5T5sWqn3hJgLfGx27sRKZWTvyzCP8dLRBTf5tBTSRVUNA==}
@@ -412,7 +448,23 @@ snapshots:
   '@typescript/typescript-win32-x64@7.0.2':
     optional: true
 
+  anynum@1.0.1: {}
+
+  fast-xml-parser@5.3.3:
+    dependencies:
+      strnum: 2.5.1
+
   hono@4.13.13: {}
+
+  htmx-ext-sse@2.2.4:
+    dependencies:
+      htmx.org: 2.0.8
+
+  htmx.org@2.0.8: {}
+
+  strnum@2.5.1:
+    dependencies:
+      anynum: 1.0.1
 
   typescript@7.0.2:
     optionalDependencies:

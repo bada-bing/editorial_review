@@ -1,5 +1,6 @@
 import { serve } from "@hono/node-server";
 import { Core, openDatabase } from "@editorial-review/core";
+import { createUi } from "@editorial-review/web";
 import { Hono } from "hono";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -39,6 +40,17 @@ const unwatch = connections.watch((list) => events.publish({ event: "connections
 const api = createApi(core, connections, scenarios, prompts, events);
 const app = new Hono();
 app.route("/api", api);
+// The page acts through the API as me: no pane header, JSON bodies.
+app.route(
+  "/",
+  createUi((method, path, body) =>
+    Promise.resolve(api.request(path.replace(/^\/api/, ""), {
+      method,
+      headers: body === undefined ? {} : { "content-type": "application/json" },
+      ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+    })),
+  ),
+);
 
 serve({ fetch: app.fetch, hostname: HOST, port: PORT }, () => {
   console.log(`listening on http://${HOST}:${PORT}, database ${DB_PATH}, scenarios ${SCENARIOS}`);

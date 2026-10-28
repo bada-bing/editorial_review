@@ -1,5 +1,17 @@
 {
   "name": "@editorial-review/web",
   "private": true,
-  "type": "module"
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "node --test src/*.test.ts"
+  },
+  "dependencies": {
+    "@editorial-review/core": "workspace:*",
+    "hono": "4.13.13",
+    "htmx.org": "2.0.8",
+    "htmx-ext-sse": "2.2.4"
+  }
 }
