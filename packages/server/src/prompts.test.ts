@@ -147,7 +147,7 @@ describe("prompts", () => {
     const { core, prompts, writer } = await setup();
     const mine = core.openText("me", "slack", "me");
     prompts.draft(mine);
-    core.submitDraft("me", mine, "<message><paragraph><line>a</line></paragraph></message>");
+    core.submitDraft("me", mine, "<message><paragraph><sentence>a</sentence></paragraph></message>");
     core.approve("me", mine);
     prompts.result(mine);
     assert.equal(prompts.pending(writer), 0);

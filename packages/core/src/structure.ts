@@ -9,6 +9,7 @@
  */
 import type { Node } from "./tree.ts";
 import { commit } from "./structures/commit.ts";
+import { slack } from "./structures/slack.ts";
 
 /** One line of the output and the addressable leaf it came from, if any. */
 export interface OutputLine {
@@ -30,7 +31,7 @@ export interface Structure {
 }
 
 /** Each adapter by the name of its scenario, built from the scenario's spec. */
-const adapters: Record<string, (spec: string) => Structure> = { commit };
+const adapters: Record<string, (spec: string) => Structure> = { commit, slack };
 
 export class NoStructure extends Error {}
 

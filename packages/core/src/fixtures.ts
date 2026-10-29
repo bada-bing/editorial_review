@@ -1,5 +1,6 @@
 // Test fixtures shared by the packages' tests: the commit scenario's templates and a draft of it.
 import type { Structure } from "./structure.ts";
+import { slack } from "./structures/slack.ts";
 import { templateStructure } from "./structures/templates.ts";
 import { parseTemplates } from "./template.ts";
 
@@ -26,23 +27,8 @@ line
   {{text}}
 `;
 
-export const SLACK_TEMPLATES = `
-message
-  separator: blank
-
-  {{paragraph}}+
-
-paragraph
-  separator: " "
-
-  {{line}}+
-
-line
-  {{text}}
-`;
-
 export const structureFor = (scenario: string): Structure =>
-  templateStructure(parseTemplates(scenario === "slack" ? SLACK_TEMPLATES : COMMIT_TEMPLATES));
+  scenario === "slack" ? slack() : templateStructure(parseTemplates(COMMIT_TEMPLATES));
 
 /** A commit draft: the subject, then each bullet as its lines. */
 export function commitXml(subject: string, ...bullets: string[][]): string {
@@ -51,6 +37,8 @@ export function commitXml(subject: string, ...bullets: string[][]): string {
   return `<message>\n  <subject><line>${esc(subject)}</line></subject>\n  <body>\n${body}\n  </body>\n</message>\n`;
 }
 
+/** A Slack draft: each paragraph as its sentences, "<br>" for a break. */
 export function slackXml(...paragraphs: string[][]): string {
-  return `<message>${paragraphs.map((p) => `<paragraph>${p.map((l) => `<line>${l}</line>`).join("")}</paragraph>`).join("")}</message>`;
+  const child = (s: string) => (s === "<br>" ? "<br/>" : `<sentence>${s}</sentence>`);
+  return `<message>${paragraphs.map((p) => `<paragraph>${p.map(child).join("")}</paragraph>`).join("")}</message>`;
 }

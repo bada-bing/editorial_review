@@ -7,7 +7,7 @@
     "./fixtures": "./src/fixtures.ts"
   },
   "scripts": {
-    "test": "node --test src/*.test.ts"
+    "test": "node --test src/*.test.ts src/structures/*.test.ts"
   },
   "dependencies": {
     "fast-xml-parser": "5.3.3"
