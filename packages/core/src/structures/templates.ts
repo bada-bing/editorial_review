@@ -1,5 +1,7 @@
 // A structure read off templates, the notation the commit scenario's spec is
-// written in. Its addressable leaf is `line`, a name known only here.
+// written in and templates.md beside this file defines. Its addressable leaf
+// is `line`, a name known only here.
+import { fileURLToPath } from "node:url";
 import type { OutputLine, Structure } from "../structure.ts";
 import { type Block, type Templates, TemplateError, widthOf } from "../template.ts";
 import { DraftError, type Node, nth } from "../tree.ts";
@@ -13,6 +15,7 @@ export function templateStructure(templates: Templates): Structure {
     leaf: (text) => ({ name: LINE, attrs: {}, children: [], text: text.trim() }),
     outputLines: (tree) => outputLines(tree, templates),
     fromText: (text) => treeFromText(text, templates),
+    notation: fileURLToPath(new URL("./templates.md", import.meta.url)),
   };
 }
 

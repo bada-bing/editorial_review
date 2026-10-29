@@ -1,16 +1,4 @@
-/**
- * A scenario's structure: one block per element, written as a template.
- *
- *   bullet
- *     - {{line}}
- *       {{line}}*
- *
- * A block is the element's name at the margin, indented header lines
- * `key: value`, an empty line, and the indented template: literal text around
- * placeholders, drawn as the output looks. A placeholder is a child, in order,
- * with `?`, `+` or `*` for repetition; `{{text}}` is the one built-in, the
- * characters a leaf holds. The first block is the root.
- */
+/** The parser of the template notation, which structures/templates.md defines. The first block is the root. */
 
 export type Quantifier = "" | "?" | "+" | "*";
 

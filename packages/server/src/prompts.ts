@@ -20,13 +20,16 @@ export class Prompts {
   private readonly core: Core;
   private readonly tmux: Tmux;
   private readonly specPath: (scenario: string) => string;
+  private readonly notationPath: (scenario: string) => string | undefined;
   private readonly queues = new Map<ConnectionId, Prompt[]>();
   private timer: NodeJS.Timeout | undefined;
 
-  constructor(core: Core, tmux: Tmux, specPath: (scenario: string) => string) {
+  /** `notationPath` names the file defining the notation a scenario's structure is written in, when it has one. */
+  constructor(core: Core, tmux: Tmux, specPath: (scenario: string) => string, notationPath: (scenario: string) => string | undefined = () => undefined) {
     this.core = core;
     this.tmux = tmux;
     this.specPath = specPath;
+    this.notationPath = notationPath;
   }
 
   /** Delivers what is pending every `ms`, until stopped. */
@@ -156,8 +159,11 @@ export class Prompts {
     const t = this.core.getText(text);
     const spec = this.specPath(t.scenario);
     switch (kind) {
-      case "draft":
-        return `Text ${text} of the ${t.scenario} scenario is open for you to write. Read its spec at ${spec}, the Structure section above all, and the context with: editorial get-text ${text}. Draft it as XML matching the Structure section, as message.example.xml beside the spec shows, and submit with: editorial submit-draft ${text} < draft.xml`;
+      case "draft": {
+        const notation = this.notationPath(t.scenario);
+        const written = notation ? `, written in the notation defined at ${notation}` : "";
+        return `Text ${text} of the ${t.scenario} scenario is open for you to write. Read its spec at ${spec}, the Structure section above all${written}, and the context with: editorial get-text ${text}. Draft it as XML matching the Structure section, as message.example.xml beside the spec shows, and submit with: editorial submit-draft ${text} < draft.xml`;
+      }
       case "redraft":
         return `Text ${text} was reviewed. Read the draft with its line ids and comments with: editorial get-draft ${text} --xml. Start from that XML, keep the id of every line you leave alone or rewrite, set answers="<comment ids>" on a line you change for a comment, change only what the comments ask for, and submit the next version with: editorial submit-draft ${text} < draft.xml`;
       case "review":

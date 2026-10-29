@@ -28,6 +28,8 @@ export interface Structure {
   outputLines(tree: Node): OutputLine[];
   /** A tree built from typed text: what the page submits. */
   fromText(text: string): Node;
+  /** The path of the file defining the notation the spec's structure is written in, when it has one. */
+  notation?: string;
 }
 
 /** Each adapter by the name of its scenario, built from the scenario's spec. */

@@ -31,7 +31,7 @@ const AGENTS = (process.env.EDITORIAL_REVIEW_AGENTS ?? "claude").split(",").map(
 
 const tmux = realTmux(AGENTS);
 const connections = new Connections(core, tmux);
-const prompts = new Prompts(core, tmux, (scenario) => scenarios.specPath(scenario));
+const prompts = new Prompts(core, tmux, (scenario) => scenarios.specPath(scenario), (scenario) => scenarios.structure(scenario).notation);
 prompts.rederive();
 prompts.start();
 const events = new Events();

@@ -15,7 +15,7 @@ const setup = async () => {
   const connections = new Connections(core, tmux);
   const writer = (await connections.fromPane("%1")).id;
   const reviewer = (await connections.fromPane("%2")).id;
-  const prompts = new Prompts(core, tmux, (s) => `/scenarios/${s}/spec.md`);
+  const prompts = new Prompts(core, tmux, (s) => `/scenarios/${s}/spec.md`, (s) => structureFor(s).notation);
   const id = core.openText({ connection: writer }, "commit", { connection: writer });
   return { core, tmux, prompts, id, writer, reviewer };
 };
@@ -30,6 +30,7 @@ describe("prompts", () => {
     assert.equal(target, "@1");
     assert.match(line, new RegExp(`^Text ${id} of the commit scenario is open for you to write`));
     assert.match(line, /\/scenarios\/commit\/spec\.md/);
+    assert.match(line, /written in the notation defined at \/\S+\/structures\/templates\.md,/);
     assert.match(line, new RegExp(`editorial submit-draft ${id} < draft.xml$`));
   });
 
