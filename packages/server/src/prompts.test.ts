@@ -1,5 +1,5 @@
 import { Core, openDatabase } from "@editorial-review/core";
-import { COMMIT_TEMPLATES, commitXml, templatesFor } from "@editorial-review/core/fixtures";
+import { COMMIT_TEMPLATES, commitXml, structureFor } from "@editorial-review/core/fixtures";
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import { Connections } from "./connections.ts";
@@ -7,7 +7,7 @@ import { Prompts } from "./prompts.ts";
 import { fakeTmux } from "./tmux.fake.ts";
 
 const setup = async () => {
-  const core = new Core(openDatabase(":memory:"), templatesFor);
+  const core = new Core(openDatabase(":memory:"), structureFor);
   const tmux = fakeTmux({
     "%1": { id: "@1", name: "WFC-1145:edit", state: "waiting" },
     "%2": { id: "@2", name: "reviewer:fable", state: "idle" },

@@ -107,7 +107,7 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
     return c.json(core.getDraft(id(c.req.param("id")), v === "latest" ? undefined : version(v)));
   });
 
-  // A draft arrives as XML matching the scenario's templates, or as typed text the templates turn into one.
+  // A draft arrives as XML matching the scenario's structure, or as typed text the structure turns into one.
   api.post("/texts/:id/drafts", async (c) => {
     const { xml, text } = (await c.req.json()) as { xml?: string; text?: string };
     if (typeof xml !== "string" && typeof text !== "string") throw new CoreError("Invalid", "xml or text is required");

@@ -1,5 +1,5 @@
 import { Core, openDatabase } from "@editorial-review/core";
-import { COMMIT_TEMPLATES, commitXml, templatesFor } from "@editorial-review/core/fixtures";
+import { COMMIT_TEMPLATES, commitXml, structureFor } from "@editorial-review/core/fixtures";
 import { strict as assert } from "node:assert";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +13,7 @@ import { Scenarios } from "./scenarios.ts";
 import { fakeTmux } from "./tmux.fake.ts";
 
 const setup = () => {
-  const core = new Core(openDatabase(":memory:"), templatesFor);
+  const core = new Core(openDatabase(":memory:"), structureFor);
   const root = mkdtempSync(join(tmpdir(), "scenarios-"));
   mkdirSync(join(root, "commit", "examples"), { recursive: true });
   writeFileSync(join(root, "commit", "spec.md"), `# Commit message\n\n## Structure\n\n\`\`\`template\n${COMMIT_TEMPLATES}\`\`\`\n`);
@@ -111,9 +111,9 @@ describe("the API", () => {
   it("serves the scenarios", async () => {
     const { call } = setup();
     assert.deepEqual(await (await call("GET", "/scenarios")).json(), ["commit"]);
-    const s = (await (await call("GET", "/scenarios/commit")).json()) as { spec: string; examples: Record<string, string>; structure: string };
+    const s = (await (await call("GET", "/scenarios/commit")).json()) as { spec: string; examples: Record<string, string> };
     assert.match(s.spec, /^# Commit message\n/);
-    assert.equal(s.structure, COMMIT_TEMPLATES);
+    assert.ok(s.spec.includes(COMMIT_TEMPLATES));
     assert.deepEqual(Object.keys(s.examples), ["E1"]);
     assert.equal((await call("GET", "/scenarios/slack")).status, 404);
   });

@@ -25,7 +25,7 @@ const USAGE = `usage: editorial <command> [options]
                  [--context <name>=<value|@file>]...
   get-text       <id>                              the text's state and context
   get-draft      <id> [--version <n>] [--xml]      a draft's lines with their ids and threads; --xml prints the tree
-  submit-draft   <id> < draft.xml                  the next version, XML matching the scenario's templates
+  submit-draft   <id> < draft.xml                  the next version, XML matching the scenario's structure
   add-comment    <id> [--author <label>]           a thread on a line or on the whole draft,
                  [--line <id> | --reply-to <id>] < body   or a reply
   submit-review  <id>                              end your review

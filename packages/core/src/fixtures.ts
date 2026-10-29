@@ -1,5 +1,7 @@
 // Test fixtures shared by the packages' tests: the commit scenario's templates and a draft of it.
-import { type Templates, parseTemplates } from "./template.ts";
+import type { Structure } from "./structure.ts";
+import { templateStructure } from "./structures/templates.ts";
+import { parseTemplates } from "./template.ts";
 
 export const COMMIT_TEMPLATES = `
 # A commit message: a subject, an empty line, then bullets.
@@ -39,8 +41,8 @@ line
   {{text}}
 `;
 
-export const templatesFor = (scenario: string): Templates =>
-  parseTemplates(scenario === "slack" ? SLACK_TEMPLATES : COMMIT_TEMPLATES);
+export const structureFor = (scenario: string): Structure =>
+  templateStructure(parseTemplates(scenario === "slack" ? SLACK_TEMPLATES : COMMIT_TEMPLATES));
 
 /** A commit draft: the subject, then each bullet as its lines. */
 export function commitXml(subject: string, ...bullets: string[][]): string {

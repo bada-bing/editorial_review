@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { Forbidden, Invalid, NotApproved, NotFound, NotYourTurn, ReviewRunning, TextApproved } from "./errors.ts";
-import type { Templates } from "./template.ts";
-import { type Change, type Node, type Row, assignIds, check, compare, findLine, newLineId, outputLines, parseXml, render, rows, toXml, treeFromText } from "./tree.ts";
+import type { Structure } from "./structure.ts";
+import { type Change, type Node, type Row, assignIds, compare, findLeaf, newLineId, parseXml, render, rows, toXml } from "./tree.ts";
 
 /** Eight hex characters, drawn at random, never reused. */
 export type ConnectionId = string;
@@ -113,11 +113,11 @@ const sameActor = (a: Actor, b: Actor): boolean =>
  */
 export class Core {
   private readonly db: DatabaseSync;
-  private readonly templatesFor: (scenario: string) => Templates;
-  /** `templatesFor` gives a scenario's structure, read from its spec by `server`. */
-  constructor(db: DatabaseSync, templatesFor: (scenario: string) => Templates) {
+  private readonly structureFor: (scenario: string) => Structure;
+  /** `structureFor` gives a scenario's structure adapter, built from its spec by `server`. */
+  constructor(db: DatabaseSync, structureFor: (scenario: string) => Structure) {
     this.db = db;
-    this.templatesFor = templatesFor;
+    this.structureFor = structureFor;
   }
 
   /** The connection for a tmux window, found by its target or created. */
@@ -197,7 +197,7 @@ export class Core {
 
   /**
    * Saves the writer's next version, a tree as XML matching the scenario's
-   * templates; every line gets an id it did not have. Only while drafting;
+   * structure; every addressable leaf gets an id it did not have. Only while drafting;
    * the text is then in review and waits on me, until I submit my review.
    */
   submitDraft(actor: Actor, id: TextId, xml: string): Version {
@@ -205,25 +205,25 @@ export class Core {
     if (!sameActor(actor, t.writer)) throw new Forbidden("submit a draft as its writer");
     if (t.state === "approved") throw new TextApproved(id);
     if (t.state !== "drafting") throw new NotYourTurn("submit a draft", t.state);
-    const templates = this.templatesFor(t.scenario);
-    const tree = assignIds(this.parseAndCheck(xml, templates));
-    this.checkAnswers(id, tree);
+    const structure = this.structureFor(t.scenario);
+    const tree = assignIds(this.parseAndCheck(xml, structure), structure);
+    this.checkAnswers(id, tree, structure);
     const version = (t.latestVersion ?? 0) + 1;
     this.insertDraft(id, version, "submitted", toXml(tree));
     return version;
   }
 
-  /** Typed text as a draft of this text's scenario, built by its templates: what the page submits. */
+  /** Typed text as a draft of this text's scenario, built by its structure: what the page submits. */
   draftFromText(id: TextId, text: string): string {
     const t = this.getText(id);
-    const templates = this.templatesFor(t.scenario);
-    const tree = treeFromText(text, templates);
+    const structure = this.structureFor(t.scenario);
+    const tree = structure.fromText(text);
     // Lines that read the same as in the current version keep its ids, so a thread follows a line I retype unchanged.
     if (t.latestVersion !== null) {
-      const known = new Map(rows(parseXml(this.getDraft(id).xml)).map((r) => [r.text, r.id]));
+      const known = new Map(rows(parseXml(this.getDraft(id).xml), structure).map((r) => [r.text, r.id]));
       const used = new Set<string>();
       const walk = (n: Node) => {
-        if (n.name === "line") {
+        if (structure.addressable(n)) {
           const keep = known.get(n.text ?? "");
           if (keep && !used.has(keep)) {
             n.attrs["id"] = keep;
@@ -250,14 +250,18 @@ export class Core {
     if (t.state !== "in review") throw new NotYourTurn("amend the draft", t.state);
     if (t.waitsOn.some((w) => w.role === "reviewer" && w.actor !== "me")) throw new ReviewRunning(id);
     const current = this.getDraft(id);
+    const structure = this.structureFor(t.scenario);
     const tree = parseXml(current.xml);
-    const found = findLine(tree, lineId);
+    const found = findLeaf(tree, lineId, structure);
     if (!found) throw new NotFound("line of the current draft", lineId);
-    const replacements: Node[] = lines.map((text, i) => ({ name: "line", attrs: i === 0 ? { id: lineId } : { id: newLineId() }, children: [], text: text.trim() }));
+    const replacements: Node[] = lines.map((text, i) => {
+      const leaf = structure.leaf(text);
+      leaf.attrs["id"] = i === 0 ? lineId : newLineId();
+      return leaf;
+    });
     found.parent.children.splice(found.index, 1, ...replacements);
-    const templates = this.templatesFor(t.scenario);
     try {
-      check(tree, templates);
+      structure.check(tree);
     } catch (e) {
       throw new Invalid((e as Error).message);
     }
@@ -292,10 +296,11 @@ export class Core {
     ) as { id: number; text_id: string; version: number; origin: Origin; content: string; created_at: string } | undefined;
     if (!row) throw new NotFound(version === undefined ? "draft of text" : `version ${version} of text`, id);
     const previous = this.db.prepare("SELECT content FROM draft WHERE text_id = ? AND version = ?").get(id, row.version - 1) as { content: string } | undefined;
+    const structure = this.structureFor(this.getText(id).scenario);
     const tree = parseXml(row.content);
-    const compared = compare(previous ? parseXml(previous.content) : undefined, tree);
+    const compared = compare(previous ? parseXml(previous.content) : undefined, tree, structure);
     const output = new Map<string, string[]>();
-    for (const l of outputLines(tree, this.templatesFor(this.getText(id).scenario))) {
+    for (const l of structure.outputLines(tree)) {
       if (l.lineId) output.set(l.lineId, [...(output.get(l.lineId) ?? []), l.text]);
     }
     const answered: Draft["answered"] = {};
@@ -440,26 +445,26 @@ export class Core {
     this.db.prepare("UPDATE text SET approved_draft_id = ? WHERE id = ?").run(draftId, id);
   }
 
-  /** The approved draft as its destination takes it, rendered by the scenario's templates. Fails unless the text is approved. */
+  /** The approved draft as its destination takes it, rendered by the scenario's structure. Fails unless the text is approved. */
   getResult(id: TextId): string {
     const t = this.getText(id);
     if (t.state !== "approved") throw new NotApproved(id, t.state);
     const row = this.db
       .prepare("SELECT d.content FROM text t JOIN draft d ON d.id = t.approved_draft_id WHERE t.id = ?")
       .get(id) as { content: string };
-    return render(parseXml(row.content), this.templatesFor(t.scenario));
+    return render(parseXml(row.content), this.structureFor(t.scenario));
   }
 
   /** Any draft rendered as the output would be: the page's preview. */
   renderDraft(id: TextId, version?: Version): string {
     const t = this.getText(id);
-    return render(parseXml(this.getDraft(id, version).xml), this.templatesFor(t.scenario));
+    return render(parseXml(this.getDraft(id, version).xml), this.structureFor(t.scenario));
   }
 
   /** Every `answers` on a line names a comment of this text. */
-  private checkAnswers(id: TextId, tree: Node): void {
+  private checkAnswers(id: TextId, tree: Node, structure: Structure): void {
     const known = new Set(this.commentsOf(id).map((c) => c.id));
-    for (const r of rows(tree)) {
+    for (const r of rows(tree, structure)) {
       for (const a of r.answers) if (!known.has(a)) throw new Invalid(`line ${r.id} answers ${a}, which is not a comment of this text`);
     }
   }
@@ -470,10 +475,10 @@ export class Core {
       .all(id) as unknown as { id: string; author: string; content: string }[];
   }
 
-  private parseAndCheck(xml: string, templates: Templates): Node {
+  private parseAndCheck(xml: string, structure: Structure): Node {
     try {
       const tree = parseXml(xml);
-      check(tree, templates);
+      structure.check(tree);
       return tree;
     } catch (e) {
       throw new Invalid((e as Error).message);

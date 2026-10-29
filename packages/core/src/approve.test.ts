@@ -1,12 +1,12 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import { Core } from "./core.ts";
-import { commitXml, templatesFor } from "./fixtures.ts";
+import { commitXml, structureFor } from "./fixtures.ts";
 import { openDatabase } from "./db.ts";
 import { NotApproved, NotYourTurn, ReviewRunning, TextApproved } from "./errors.ts";
 
 const setup = () => {
-  const core = new Core(openDatabase(":memory:"), templatesFor);
+  const core = new Core(openDatabase(":memory:"), structureFor);
   const writer = core.connect("@1", "WFC-1145:edit");
   const reviewer = core.connect("@2", "reviewer:fable");
   const id = core.openText({ connection: writer }, "commit", { connection: writer });

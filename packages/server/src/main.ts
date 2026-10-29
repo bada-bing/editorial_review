@@ -24,7 +24,7 @@ const SCENARIOS = process.env.EDITORIAL_REVIEW_SCENARIOS ?? join(process.cwd(), 
 
 const db = openDatabase(DB_PATH);
 const scenarios = new Scenarios(SCENARIOS);
-const core = new Core(db, (scenario) => scenarios.templates(scenario));
+const core = new Core(db, (scenario) => scenarios.structure(scenario));
 
 // EDITORIAL_REVIEW_AGENTS lists the commands that count as an agent running in a tmux pane.
 const AGENTS = (process.env.EDITORIAL_REVIEW_AGENTS ?? "claude").split(",").map((s) => s.trim());

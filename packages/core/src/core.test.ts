@@ -1,11 +1,11 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import { Core } from "./core.ts";
-import { commitXml, templatesFor } from "./fixtures.ts";
+import { commitXml, structureFor } from "./fixtures.ts";
 import { openDatabase } from "./db.ts";
 import { NotFound } from "./errors.ts";
 
-const core = () => new Core(openDatabase(":memory:"), templatesFor);
+const core = () => new Core(openDatabase(":memory:"), structureFor);
 
 describe("connections", () => {
   it("finds a connection again by its target", () => {

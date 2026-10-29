@@ -3,11 +3,11 @@ import { describe, it } from "node:test";
 import { Core } from "./core.ts";
 import { openDatabase } from "./db.ts";
 import { Invalid, NotFound, NotYourTurn, ReviewRunning } from "./errors.ts";
-import { commitXml, templatesFor } from "./fixtures.ts";
+import { commitXml, structureFor } from "./fixtures.ts";
 
 const setup = () => {
   const db = openDatabase(":memory:");
-  const core = new Core(db, templatesFor);
+  const core = new Core(db, structureFor);
   const writer = core.connect("@1", "WFC-1145:edit");
   const id = core.openText({ connection: writer }, "commit", { connection: writer });
   return { db, core, id, writer, W: { connection: writer } as const };

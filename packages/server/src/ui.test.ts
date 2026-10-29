@@ -1,5 +1,5 @@
 import { Core, openDatabase } from "@editorial-review/core";
-import { COMMIT_TEMPLATES, commitXml, templatesFor } from "@editorial-review/core/fixtures";
+import { COMMIT_TEMPLATES, commitXml, structureFor } from "@editorial-review/core/fixtures";
 import { createUi } from "@editorial-review/web";
 import { strict as assert } from "node:assert";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -14,7 +14,7 @@ import { Scenarios } from "./scenarios.ts";
 import { fakeTmux } from "./tmux.fake.ts";
 
 const setup = async () => {
-  const core = new Core(openDatabase(":memory:"), templatesFor);
+  const core = new Core(openDatabase(":memory:"), structureFor);
   const root = mkdtempSync(join(tmpdir(), "scenarios-"));
   mkdirSync(join(root, "commit", "examples"), { recursive: true });
   writeFileSync(join(root, "commit", "spec.md"), `# Commit message\n\nSUBJECT-SCOPE. Examples: E1 good.\n\n\`\`\`template\n${COMMIT_TEMPLATES}\`\`\`\n`);

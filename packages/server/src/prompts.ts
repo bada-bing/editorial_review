@@ -157,7 +157,7 @@ export class Prompts {
     const spec = this.specPath(t.scenario);
     switch (kind) {
       case "draft":
-        return `Text ${text} of the ${t.scenario} scenario is open for you to write. Read its spec at ${spec}, the Structure section above all, and the context with: editorial get-text ${text}. Draft it as XML matching the templates, one <line> per sentence-like unit, as message.example.xml beside the spec shows, and submit with: editorial submit-draft ${text} < draft.xml`;
+        return `Text ${text} of the ${t.scenario} scenario is open for you to write. Read its spec at ${spec}, the Structure section above all, and the context with: editorial get-text ${text}. Draft it as XML matching the Structure section, as message.example.xml beside the spec shows, and submit with: editorial submit-draft ${text} < draft.xml`;
       case "redraft":
         return `Text ${text} was reviewed. Read the draft with its line ids and comments with: editorial get-draft ${text} --xml. Start from that XML, keep the id of every line you leave alone or rewrite, set answers="<comment ids>" on a line you change for a comment, change only what the comments ask for, and submit the next version with: editorial submit-draft ${text} < draft.xml`;
       case "review":

@@ -1,5 +1,5 @@
 import { Core, openDatabase } from "@editorial-review/core";
-import { COMMIT_TEMPLATES, commitXml, templatesFor } from "@editorial-review/core/fixtures";
+import { COMMIT_TEMPLATES, commitXml, structureFor } from "@editorial-review/core/fixtures";
 import { createApi } from "@editorial-review/server/api";
 import { Connections } from "@editorial-review/server/connections";
 import { Events } from "@editorial-review/server/events";
@@ -14,7 +14,7 @@ import { describe, it } from "node:test";
 import { run } from "./commands.ts";
 
 const setup = () => {
-  const core = new Core(openDatabase(":memory:"), templatesFor);
+  const core = new Core(openDatabase(":memory:"), structureFor);
   const root = mkdtempSync(join(tmpdir(), "scenarios-"));
   mkdirSync(join(root, "commit"), { recursive: true });
   writeFileSync(join(root, "commit", "spec.md"), `# Commit message\n\n\`\`\`template\n${COMMIT_TEMPLATES}\`\`\`\n`);

@@ -1,11 +1,11 @@
 import { strict as assert } from "node:assert";
 import { describe, it } from "node:test";
 import { Core } from "./core.ts";
-import { commitXml, templatesFor } from "./fixtures.ts";
+import { commitXml, structureFor } from "./fixtures.ts";
 import { openDatabase } from "./db.ts";
 
 const getState = (db: ReturnType<typeof openDatabase>, id: string) => {
-  try { return new Core(db, templatesFor).getText(id); } catch { return undefined; }
+  try { return new Core(db, structureFor).getText(id); } catch { return undefined; }
 };
 
 const setup = () => {
