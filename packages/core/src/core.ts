@@ -206,7 +206,7 @@ export class Core {
     if (t.state === "approved") throw new TextApproved(id);
     if (t.state !== "drafting") throw new NotYourTurn("submit a draft", t.state);
     const structure = this.structureFor(t.scenario);
-    const tree = assignIds(this.parseAndCheck(xml, structure), structure);
+    const tree = this.parseAndCheck(xml, structure);
     this.checkAnswers(id, tree, structure);
     const version = (t.latestVersion ?? 0) + 1;
     this.insertDraft(id, version, "submitted", toXml(tree));
@@ -475,9 +475,10 @@ export class Core {
       .all(id) as unknown as { id: string; author: string; content: string }[];
   }
 
+  /** Parses a draft and gives its leaves their ids before checking it, since a width is checked line by line, by id. */
   private parseAndCheck(xml: string, structure: Structure): Node {
     try {
-      const tree = parseXml(xml);
+      const tree = assignIds(parseXml(xml), structure);
       structure.check(tree);
       return tree;
     } catch (e) {

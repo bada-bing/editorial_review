@@ -27,6 +27,11 @@ describe("submitDraft", () => {
     assert.match(d.xml, /<line id="[0-9a-f]{8}">s<\/line>/);
   });
 
+  it("refuses a draft whose lines carry no ids and come out over the width", () => {
+    const { core, id, W } = setup();
+    assert.throws(() => core.submitDraft(W, id, commitXml("s", ["x".repeat(69)])), (e: Error) => e instanceof Invalid && /comes out 71 characters long/.test(e.message));
+  });
+
   it("refuses a draft that does not fit the scenario's templates, naming the place", () => {
     const { core, id, W } = setup();
     assert.throws(() => core.submitDraft(W, id, "<message><body/></message>"), (e: Error) => e instanceof Invalid && /needs a <subject>/.test(e.message));
