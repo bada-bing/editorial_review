@@ -167,7 +167,7 @@ export class Prompts {
       case "redraft":
         return `Text ${text} was reviewed. Read the draft with its line ids and comments with: editorial get-draft ${text} --xml. Start from that XML, keep the id of every line you leave alone or rewrite, set answers="<comment ids>" on a line you change for a comment, change only what the comments ask for, and submit the next version with: editorial submit-draft ${text} < draft.xml`;
       case "review":
-        return `Review text ${text} of the ${t.scenario} scenario against its spec at ${spec}. Read the draft with: editorial get-draft ${text}. Comment on a line by its id with: editorial add-comment ${text} --line <id> < comment. When done: editorial submit-review ${text}`;
+        return `Review text ${text} of the ${t.scenario} scenario against its spec at ${spec}. Read the draft with: editorial get-draft ${text}. Comment on a line by its id with: editorial add-comment ${text} --line <id> < comment. Answer what a thread asks you with: editorial add-comment ${text} --reply-to <comment id> < reply. When done: editorial submit-review ${text}`;
       case "result":
         return `Text ${text} is approved. Take it with: editorial get-result ${text}, and use it for what it was opened for.`;
       case "approved":

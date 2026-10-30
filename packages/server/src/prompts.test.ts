@@ -71,6 +71,18 @@ describe("prompts", () => {
     const lines = Object.fromEntries(tmux.typed);
     assert.match(lines["@1"]!, new RegExp(`^Question on line ${two} of text ${id}, comment ${c}: Which two\\? / Be specific\\. Answer with: editorial add-comment ${id} --author writer --reply-to ${c}`));
     assert.match(lines["@2"]!, new RegExp(`^Review text ${id} of the commit scenario`));
+    assert.match(lines["@2"]!, new RegExp(`Answer what a thread asks you with: editorial add-comment ${id} --reply-to <comment id> < reply\\.`));
+  });
+
+  it("prompts a reviewer again when its submitted review is reopened", async () => {
+    const { core, tmux, prompts, id, writer, reviewer } = await setup();
+    core.submitDraft({ connection: writer }, id, commitXml("One.", ["Two."]));
+    core.requestReview("me", id, reviewer);
+    core.submitReview({ connection: reviewer }, id);
+    core.requestReview("me", id, reviewer);
+    prompts.review(id, reviewer);
+    await prompts.deliver();
+    assert.equal(tmux.typed.filter(([target]) => target === "@2").length, 1);
   });
 
   it("tells the writer to draft again once the review is over, and the opener to take the result once approved", async () => {

@@ -89,6 +89,16 @@ describe("requestReview and submitReview", () => {
     assert.equal(core.requestReview("me", id, reviewer), core.requestReview("me", id, reviewer));
   });
 
+  it("reopens the review of a reviewer that has submitted, so the text waits on it again", () => {
+    const { core, id, reviewer } = setup();
+    const first = core.requestReview("me", id, reviewer);
+    core.submitReview({ connection: reviewer }, id);
+    assert.deepEqual(core.getText(id).waitsOn, [{ actor: "me", role: "reviewer" }]);
+    assert.equal(core.requestReview("me", id, reviewer), first);
+    assert.deepEqual(core.getText(id).waitsOn, [{ actor: "me", role: "reviewer" }, { actor: { connection: reviewer }, role: "reviewer" }]);
+    core.submitReview({ connection: reviewer }, id);
+  });
+
   it("refuses a review nobody requested, and my review twice", () => {
     const { core, id, writer, reviewer } = setup();
     assert.throws(() => core.submitReview({ connection: reviewer }, id), NotFound);

@@ -398,8 +398,12 @@ export class Core {
     if (t.state !== "in review") throw new NotYourTurn("request a review", t.state);
     const draftId = this.draftRowId(id, t.latestVersion!);
     const existing = this.db
-      .prepare("SELECT id FROM review WHERE draft_id = ? AND reviewer_connection_id = ?")
-      .get(draftId, reviewer) as { id: number } | undefined;
+      .prepare("SELECT id, submitted_at FROM review WHERE draft_id = ? AND reviewer_connection_id = ?")
+      .get(draftId, reviewer) as { id: number; submitted_at: string | null } | undefined;
+    // An open request stands as it is. A submitted one is reopened: I may have asked the reviewer something since.
+    if (existing && existing.submitted_at !== null) {
+      this.db.prepare("UPDATE review SET submitted_at = NULL, started_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE id = ?").run(existing.id);
+    }
     if (existing) return existing.id;
     const r = this.db.prepare("INSERT INTO review (draft_id, reviewer_connection_id) VALUES (?, ?)").run(draftId, reviewer);
     return Number(r.lastInsertRowid);
