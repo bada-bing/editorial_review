@@ -6,5 +6,5 @@ export { parseTemplates, TemplateError } from "./template.ts";
 export type { Block, Templates } from "./template.ts";
 export { DraftError, parseXml, render, rows, toXml } from "./tree.ts";
 export { NoStructure, structureOf } from "./structure.ts";
-export type { OutputLine, Structure } from "./structure.ts";
+export type { OutputLine, Placement, Structure } from "./structure.ts";
 export type { Change, Node, Row } from "./tree.ts";

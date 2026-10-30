@@ -81,6 +81,7 @@ textarea { width: 100%; box-sizing: border-box; background: var(--background); b
 .line:hover .actions { visibility: visible; }
 .line .actions button { padding: 0 6px; font-size: 0.8em; line-height: 1.2; }
 .gap { height: calc(0.85em * 1.5); }
+.break { padding: 0 4px 0 calc(2.5em + 16px); font-size: 0.75em; line-height: 1.2; color: var(--muted); }
 .line.changed .text { background: var(--now-tint, #fff8c5); border-radius: 3px; }
 .line.new .text { background: var(--added); border-radius: 3px; }
 .line.removed .text { background: var(--removed); text-decoration: line-through; }

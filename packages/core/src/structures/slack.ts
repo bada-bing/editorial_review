@@ -1,7 +1,7 @@
 // The Slack scenario's adapter, written by hand: a message of paragraphs, a
 // paragraph of sentences and breaks. The template notation repeats one element,
 // and a paragraph mixes two, so this structure is not read off the spec.
-import type { OutputLine, Structure } from "../structure.ts";
+import type { OutputLine, Placement, Structure } from "../structure.ts";
 import { DraftError, type Node, nth } from "../tree.ts";
 
 const MESSAGE = "message";
@@ -15,9 +15,12 @@ const TYPED_BR = "<br>";
 export const slack = (): Structure => ({
   check,
   addressable: (node) => node.name === SENTENCE,
-  leaf: (text) => ({ name: SENTENCE, attrs: {}, children: [], text: text.trim() }),
+  editTexts,
+  amend,
   outputLines,
   fromText,
+  toText,
+  placement,
 });
 
 function check(tree: Node): void {
@@ -84,4 +87,54 @@ function fromText(text: string): Node {
     paragraph.children.push(line === TYPED_BR ? { name: BR, attrs: {}, children: [], text: "" } : { name: SENTENCE, attrs: {}, children: [], text: line });
   }
   return message;
+}
+
+function toText(tree: Node): string {
+  return tree.children.map((p) => p.children.map((c) => (c.name === BR ? TYPED_BR : (c.text ?? ""))).join("\n")).join("\n\n");
+}
+
+/** A paragraph's first sentence after the first paragraph follows a gap; a sentence after a break follows the break. */
+function placement(tree: Node): Map<string, Placement> {
+  const out = new Map<string, Placement>();
+  tree.children.forEach((p, i) => {
+    p.children.forEach((c, k) => {
+      if (c.name !== SENTENCE) return;
+      out.set(c.attrs["id"] ?? "", { gap: i > 0 && k === 0, br: p.children[k - 1]?.name === BR });
+    });
+  });
+  return out;
+}
+
+/** A sentence's text, with the break after it as a line of its own, so an edit can remove the break or add one. */
+function editTexts(tree: Node): Map<string, string> {
+  const out = new Map<string, string>();
+  for (const p of tree.children) {
+    p.children.forEach((c, k) => {
+      if (c.name === SENTENCE) out.set(c.attrs["id"] ?? "", (c.text ?? "") + (p.children[k + 1]?.name === BR ? `\n${TYPED_BR}` : ""));
+    });
+  }
+  return out;
+}
+
+/** Typed lines in place of a sentence and the break after it; a break left at a paragraph's edge or doubled goes, and so does an emptied paragraph. */
+function amend(tree: Node, id: string, lines: string[]): void {
+  for (const p of tree.children) {
+    const k = p.children.findIndex((c) => c.name === SENTENCE && c.attrs["id"] === id);
+    if (k === -1) continue;
+    const span = p.children[k + 1]?.name === BR ? 2 : 1;
+    let kept = false;
+    const put = lines
+      .map((l) => l.trim())
+      .filter((l) => l !== "")
+      .map((l): Node => {
+        if (l === TYPED_BR) return { name: BR, attrs: {}, children: [], text: "" };
+        const sentence: Node = { name: SENTENCE, attrs: kept ? {} : { id }, children: [], text: l };
+        kept = true;
+        return sentence;
+      });
+    p.children.splice(k, span, ...put);
+    p.children = p.children.filter((c, i, all) => c.name !== BR || (i > 0 && i < all.length - 1 && all[i - 1]!.name !== BR));
+    tree.children = tree.children.filter((q) => q.children.length > 0);
+    return;
+  }
 }

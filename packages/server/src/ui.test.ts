@@ -1,5 +1,5 @@
 import { Core, openDatabase } from "@editorial-review/core";
-import { COMMIT_TEMPLATES, commitXml, structureFor } from "@editorial-review/core/fixtures";
+import { COMMIT_TEMPLATES, commitXml, slackXml, structureFor } from "@editorial-review/core/fixtures";
 import { createUi } from "@editorial-review/web";
 import { strict as assert } from "node:assert";
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
@@ -70,8 +70,8 @@ describe("the page", () => {
     assert.equal((await post(`/ui/texts/${id}/ask`, { commentId: reply })).status, 200);
     panel = await (await post(`/ui/texts/${id}/lines/${two}`, { lines: "Two, amended.\nThree." })).text();
     assert.match(panel, /version 2 \(amended\)/);
-    assert.match(panel, /class="line changed [^"]*" id="line-[0-9a-f]{8}"[\s\S]*Two, amended\./);
-    assert.match(panel, /class="line new [^"]*"[\s\S]*<span class="number" title="[0-9a-f]{8}">4<\/span>\s*<span class="text">Three\./);
+    assert.match(panel, /class="line changed" id="line-[0-9a-f]{8}"[\s\S]*Two, amended\./);
+    assert.match(panel, /class="line new"[\s\S]*<span class="number" title="[0-9a-f]{8}">4<\/span>\s*<span class="text">Three\./);
     assert.equal(core.getDraft(id).threads[0]!.lineId, two);
     assert.match(panel, /<pre id="preview">scope: Summary\n\n- One\.\n  Two, amended\.\n  Three\.\n<\/pre>/);
   });
@@ -101,6 +101,14 @@ describe("the page", () => {
     assert.match(opened.headers.get("HX-Redirect")!, /^\/t\/[0-9a-f]{8}$/);
     const dropped = await ui.request(`/ui/texts/${id}`, { method: "DELETE" });
     assert.equal(dropped.headers.get("HX-Redirect"), "/");
+  });
+
+  it("places the rows as the structure says: a gap between paragraphs, a mark at a break", async () => {
+    const { ui, core } = await setup();
+    const id = core.openText("me", "slack", "me");
+    core.submitDraft("me", id, slackXml(["One.", "<br>", "Two."], ["Three."]));
+    const panel = await (await ui.request(`/ui/texts/${id}`)).text();
+    assert.match(panel, /One\.[\s\S]*<div class="break"[^>]*>↵<\/div><div class="line new" [\s\S]*Two\.[\s\S]*<div class="gap"><\/div><div class="line new" [\s\S]*Three\./);
   });
 
   it("serves its assets", async () => {

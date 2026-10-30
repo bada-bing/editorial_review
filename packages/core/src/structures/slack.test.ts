@@ -35,4 +35,34 @@ describe("the Slack structure", () => {
     s.check(tree);
     assert.equal(render(tree, s), "One. Two.\nThree.\n\nFour.\n");
   });
+
+  it("places each sentence and writes the tree back as the typed text it reads", () => {
+    const tree = assignIds(parseXml(slackXml(["One.", "<br>", "Two."], ["Three."])), s);
+    const [one, two, three] = rows(tree, s).map((r) => r.id);
+    const placed = s.placement(tree);
+    assert.deepEqual([placed.get(one!), placed.get(two!), placed.get(three!)], [{ gap: false, br: false }, { gap: false, br: true }, { gap: true, br: false }]);
+    assert.equal(s.toText(tree), "One.\n<br>\nTwo.\n\nThree.");
+    assert.equal(render(s.fromText(s.toText(tree)), s), render(tree, s));
+  });
+
+  it("edits a sentence with the break after it, so an amend can remove the break or add one", () => {
+    const tree = assignIds(parseXml(slackXml(["One.", "<br>", "Two."], ["Three."])), s);
+    const [one, two, three] = rows(tree, s).map((r) => r.id);
+    const edits = s.editTexts(tree);
+    assert.equal(edits.get(one!), "One.\n<br>");
+    assert.equal(edits.get(two!), "Two.");
+    s.amend(tree, one!, ["One, changed."]);
+    s.check(tree);
+    assert.equal(render(tree, s), "One, changed. Two.\n\nThree.\n");
+    assert.equal(rows(tree, s)[0]!.id, one);
+    s.amend(tree, three!, []);
+    s.check(tree);
+    assert.equal(render(tree, s), "One, changed. Two.\n");
+    s.amend(tree, two!, ["Two.", "<br>"]);
+    s.check(tree);
+    assert.equal(render(tree, s), "One, changed. Two.\n");
+    s.amend(tree, one!, ["One.", "<br>", "Between."]);
+    s.check(tree);
+    assert.equal(render(tree, s), "One.\nBetween. Two.\n");
+  });
 });

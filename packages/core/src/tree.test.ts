@@ -97,6 +97,15 @@ describe("the tree", () => {
     assert.throws(() => commit.fromText("subject\n\nno marker here"), DraftError);
   });
 
+  it("places a commit's lines with a gap before the body, and writes it back as the typed text it reads", () => {
+    const tree = assignIds(parseXml(DRAFT), commit);
+    const placed = [...commit.placement(tree).values()];
+    assert.deepEqual(placed, [{ gap: false, br: false }, { gap: true, br: false }, { gap: false, br: false }, { gap: false, br: false }]);
+    const typed = commit.toText(tree);
+    assert.equal(typed, "web: Add the review page\n\n- the draft is shown line by line with each thread under its line\n  a line takes a comment or an edit, a thread a reply or an Ask\n- every action is a form posted to a ui route");
+    assert.equal(render(commit.fromText(typed), commit), render(tree, commit));
+  });
+
   it("writes XML back with ids and answers, readable again", () => {
     const tree = assignIds(parseXml(DRAFT), commit);
     const xml = toXml(tree);

@@ -17,17 +17,29 @@ export interface OutputLine {
   lineId?: string;
 }
 
+/** How an addressable leaf sits in the draft view: after an empty line of the output, or after a break. */
+export interface Placement {
+  gap: boolean;
+  br: boolean;
+}
+
 export interface Structure {
   /** Refuses a tree that does not fit, with a DraftError naming the element and what was expected. */
   check(tree: Node): void;
   /** True for a leaf that is addressed: given an id, commented on and amended. */
   addressable(node: Node): boolean;
-  /** An addressable leaf holding `text`, for an amend to put in place of one. */
-  leaf(text: string): Node;
+  /** What an edit of each addressable leaf shows, by its id: its text, and whatever an edit of it also changes. */
+  editTexts(tree: Node): Map<string, string>;
+  /** Puts `lines` in place of the leaf with `id` and what its edit showed with it; the first leaf put in keeps the id. */
+  amend(tree: Node, id: string, lines: string[]): void;
   /** The output, line by line, each tied to the leaf it came from. */
   outputLines(tree: Node): OutputLine[];
   /** A tree built from typed text: what the page submits. */
   fromText(text: string): Node;
+  /** The tree as typed text, which `fromText` reads back to the same tree: what the page prefills. */
+  toText(tree: Node): string;
+  /** Each addressable leaf's placement, by its id. */
+  placement(tree: Node): Map<string, Placement>;
   /** The path of the file defining the notation the spec's structure is written in, when it has one. */
   notation?: string;
 }

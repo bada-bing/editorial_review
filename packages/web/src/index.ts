@@ -181,7 +181,7 @@ export function createUi(call: Call): Hono {
     const id = c.req.param("id");
     const lineId = c.req.param("lineId");
     const draft = await json<Draft>("GET", `/api/texts/${id}/drafts/latest`);
-    return c.html(editForm(id, lineId, draft.rows.find((r) => r.id === lineId)?.text ?? ""));
+    return c.html(editForm(id, lineId, draft.rows.find((r) => r.id === lineId)?.edit ?? ""));
   });
 
   const idOf = (c: { req: { param: (k: string) => string } }) => c.req.param("id");

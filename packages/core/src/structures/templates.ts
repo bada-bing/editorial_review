@@ -2,21 +2,30 @@
 // written in and templates.md beside this file defines. Its addressable leaf
 // is `line`, a name known only here.
 import { fileURLToPath } from "node:url";
-import type { OutputLine, Structure } from "../structure.ts";
+import type { OutputLine, Placement, Structure } from "../structure.ts";
 import { type Block, type Templates, TemplateError, widthOf } from "../template.ts";
-import { DraftError, type Node, nth } from "../tree.ts";
+import { DraftError, type Node, findLeaf, leaves, nth } from "../tree.ts";
 
 const LINE = "line";
 
 export function templateStructure(templates: Templates): Structure {
-  return {
+  const structure: Structure = {
     check: (tree) => check(tree, templates),
     addressable: (node) => node.name === LINE,
-    leaf: (text) => ({ name: LINE, attrs: {}, children: [], text: text.trim() }),
+    editTexts: (tree) => new Map(leaves(tree, structure).map((l) => [l.attrs["id"] ?? "", l.text ?? ""])),
+    amend: (tree, id, lines) => {
+      const found = findLeaf(tree, id, structure);
+      if (!found) return;
+      const put = lines.map((text, i): Node => ({ name: LINE, attrs: i === 0 ? { id } : {}, children: [], text: text.trim() }));
+      found.parent.children.splice(found.index, 1, ...put);
+    },
     outputLines: (tree) => outputLines(tree, templates),
     fromText: (text) => treeFromText(text, templates),
+    toText: (tree) => textFromTree(tree, templates),
+    placement: (tree) => placement(tree, templates),
     notation: fileURLToPath(new URL("./templates.md", import.meta.url)),
   };
+  return structure;
 }
 
 // ---- checking against the templates
@@ -180,4 +189,46 @@ function fill(block: Block, paragraph: string[], templates: Templates): Node[] {
     return [{ name: block.name, attrs: {}, children: items }];
   }
   throw new TemplateError(`${block.name} cannot be built from typed text`);
+}
+
+/** The marker a block's template opens with, such as "- " for a bullet, when it opens with one. */
+function markerOf(block: Block | undefined): string | undefined {
+  const first = block?.lines[0]?.pieces[0];
+  return first?.kind === "literal" ? first.text : undefined;
+}
+
+/** Each line in order, with the root's child it sits in and the item it opens or continues. */
+function walkLines(tree: Node, templates: Templates, visit: (line: Node, section: number, marker: string | undefined, first: boolean) => void): void {
+  tree.children.forEach((section, i) => {
+    const walk = (n: Node) => {
+      const marker = markerOf(templates.blocks.get(n.name));
+      n.children.forEach((c, k) => (c.name === LINE ? visit(c, i, marker, k === 0) : walk(c)));
+    };
+    if (section.name === LINE) visit(section, i, undefined, true);
+    else walk(section);
+  });
+}
+
+/** The tree as typed text: the root's children separated by empty lines, an item's first line marked, its others indented. */
+function textFromTree(tree: Node, templates: Templates): string {
+  const out: string[] = [];
+  let last = -1;
+  walkLines(tree, templates, (line, section, marker, first) => {
+    if (last !== -1 && section !== last) out.push("");
+    last = section;
+    const text = line.text ?? "";
+    out.push(marker === undefined ? text : first ? marker + text : " ".repeat(marker.length) + text);
+  });
+  return out.join("\n");
+}
+
+/** A gap before the first line of each of the root's children after the first; templates draw no breaks. */
+function placement(tree: Node, templates: Templates): Map<string, Placement> {
+  const out = new Map<string, Placement>();
+  let last = -1;
+  walkLines(tree, templates, (line, section) => {
+    out.set(line.attrs["id"] ?? "", { gap: last !== -1 && section !== last, br: false });
+    last = section;
+  });
+  return out;
 }

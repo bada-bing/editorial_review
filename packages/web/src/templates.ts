@@ -127,7 +127,7 @@ export function textPanel(t: TextState, draft: Draft | undefined, output: string
   <form hx-delete="/ui/texts/${t.id}" hx-target="body" hx-confirm="Drop text ${t.id} with its drafts and comments?"><button type="submit">Drop</button></form>
 </div>
 ${error ? html`<div class="error">${error}</div>` : ""}
-${iWrite ? submitDraftForm(t.id, draft ? previousAsText(draft) : undefined) : ""}
+${iWrite ? submitDraftForm(t.id, draft?.typed) : ""}
 ${draft ? html`<div class="split">
   ${draftView(t.id, draft, canAct, inReview)}
   <div class="output"><div class="line heading"><span class="text">output</span></div><pre id="preview">${output ?? ""}</pre></div>
@@ -154,40 +154,20 @@ function submitDraftForm(id: string, previous: string | undefined): Html {
 </form>`;
 }
 
-/** The last version as text for the textarea: its rows, a bullet's first line marked, so retyping keeps the ids. */
-function previousAsText(draft: Draft): string {
-  const out: string[] = [];
-  let lastPath = "";
-  for (const r of draft.rows) {
-    const bullet = /\/bullet\[\d+\]/.exec(r.path)?.[0];
-    const section = r.path.replace(/\/line\[\d+\]$/, "");
-    if (out.length && section.split("/")[1] !== lastPath.split("/")[1]) out.push("");
-    if (bullet && section !== lastPath) out.push(`- ${r.text}`);
-    else if (bullet) out.push(`  ${r.text}`);
-    else out.push(r.text);
-    lastPath = section;
-  }
-  return out.join("\n");
-}
-
-/** The draft row by row, each row a line of the tree with its threads under it; the whole-draft threads come last. */
+/** The draft row by row, each row an addressable leaf with its threads under it, placed as its structure says; the whole-draft threads come last. */
 export function draftView(id: string, draft: Draft, canAmend: boolean, canComment: boolean): Html {
   const whole = draft.threads.filter((th) => th.lineId === null);
   const onLine = (lineId: string) => draft.threads.filter((th) => th.lineId === lineId);
-  let lastSection = "";
   return html`<div class="draft">
   <div class="line heading"><span class="number"></span><span class="text">draft</span><span class="marks"></span></div>
   ${draft.rows.map((r) => {
-    const section = r.path.split("/")[1] ?? "";
-    const gap = lastSection && section !== lastSection ? html`<div class="gap"></div>` : "";
-    lastSection = section;
-    const bullet = /\/bullet\[\d+\]\/line\[1\]$/.test(r.path);
+    const before = r.gap ? html`<div class="gap"></div>` : r.br ? html`<div class="break" title="a line break: the next line starts on a new line of the output">↵</div>` : "";
     // The comment a change answers: a mark, and the comment itself in a floating box on hover.
     const answers = r.answers.map((a) => {
       const c = draft.answered[a];
       return html`<span class="answers">↩ ${c ? c.author : a}<span class="popover">${c ? html`<span class="author">${c.author}</span> ${c.content}` : html`${a} is not a comment of this text`}</span></span>`;
     });
-    return html`${gap}<div class="line ${r.change} ${bullet ? "item" : ""}" id="line-${r.id}" data-line="${r.id}">
+    return html`${before}<div class="line ${r.change}" id="line-${r.id}" data-line="${r.id}">
     <span class="number" title="${r.id}">${r.n}</span>
     <span class="text">${r.text}<span class="actions">
       ${canComment ? html`<button title="Comment on this line" hx-get="/ui/texts/${id}/comment-form?lineId=${r.id}" hx-target="#after-${r.id}" hx-swap="innerHTML">+</button>` : ""}

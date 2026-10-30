@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
 import type { DatabaseSync } from "node:sqlite";
 import { Forbidden, Invalid, NotApproved, NotFound, NotYourTurn, ReviewRunning, TextApproved } from "./errors.ts";
-import type { Structure } from "./structure.ts";
-import { type Change, type Node, type Row, assignIds, compare, findLeaf, newLineId, parseXml, render, rows, toXml } from "./tree.ts";
+import type { Placement, Structure } from "./structure.ts";
+import { type Change, type Node, type Row, assignIds, compare, findLeaf, parseXml, render, rows, toXml } from "./tree.ts";
 
 /** Eight hex characters, drawn at random, never reused. */
 export type ConnectionId = string;
@@ -43,7 +43,9 @@ export interface Draft {
   /** The tree as XML, every line carrying its id. */
   xml: string;
   /** The review view: one row per line, each with how it changed since the version before and the output line it becomes. */
-  rows: (Row & { change: Change; output: string })[];
+  rows: (Row & { change: Change; output: string; edit: string } & Placement)[];
+  /** The draft as typed text, as the page prefills its textarea. */
+  typed: string;
   /** The comments the rows' `answers` name, by id, so the page can show what was answered. */
   answered: Record<string, { author: string; content: string }>;
   /** Lines of the version before that this version no longer has. */
@@ -252,14 +254,9 @@ export class Core {
     const current = this.getDraft(id);
     const structure = this.structureFor(t.scenario);
     const tree = parseXml(current.xml);
-    const found = findLeaf(tree, lineId, structure);
-    if (!found) throw new NotFound("line of the current draft", lineId);
-    const replacements: Node[] = lines.map((text, i) => {
-      const leaf = structure.leaf(text);
-      leaf.attrs["id"] = i === 0 ? lineId : newLineId();
-      return leaf;
-    });
-    found.parent.children.splice(found.index, 1, ...replacements);
+    if (!findLeaf(tree, lineId, structure)) throw new NotFound("line of the current draft", lineId);
+    structure.amend(tree, lineId, lines);
+    assignIds(tree, structure);
     try {
       structure.check(tree);
     } catch (e) {
@@ -300,6 +297,8 @@ export class Core {
     const tree = parseXml(row.content);
     const compared = compare(previous ? parseXml(previous.content) : undefined, tree, structure);
     const output = new Map<string, string[]>();
+    const placed = structure.placement(tree);
+    const edits = structure.editTexts(tree);
     for (const l of structure.outputLines(tree)) {
       if (l.lineId) output.set(l.lineId, [...(output.get(l.lineId) ?? []), l.text]);
     }
@@ -326,7 +325,8 @@ export class Core {
       version: row.version,
       origin: row.origin,
       xml: row.content,
-      rows: compared.rows.map((r) => ({ ...r, output: (output.get(r.id) ?? [r.text]).join("\n") })),
+      rows: compared.rows.map((r) => ({ ...r, output: (output.get(r.id) ?? [r.text]).join("\n"), edit: edits.get(r.id) ?? r.text, ...(placed.get(r.id) ?? { gap: false, br: false }) })),
+      typed: structure.toText(tree),
       answered,
       removed: compared.removed,
       createdAt: row.created_at,
