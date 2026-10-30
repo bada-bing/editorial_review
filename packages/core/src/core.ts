@@ -129,7 +129,9 @@ export class Core {
       | undefined;
     if (found) return found.id;
     const id = newId();
-    this.db.prepare("INSERT INTO connection (id, target, label) VALUES (?, ?, ?)").run(id, target, label);
+    // A label is unique: one already held is taken with the new connection's id as a suffix.
+    const free = this.findConnection({ label }) ? `${label}#${id}` : label;
+    this.db.prepare("INSERT INTO connection (id, target, label) VALUES (?, ?, ?)").run(id, target, free);
     return id;
   }
 
@@ -153,6 +155,8 @@ export class Core {
   }
 
   relabel(id: ConnectionId, label: string): void {
+    const holder = this.findConnection({ label });
+    if (holder && holder.id !== id) throw new Invalid(`the label ${label} is connection ${holder.id}'s`);
     const r = this.db.prepare("UPDATE connection SET label = ? WHERE id = ?").run(label, id);
     if (r.changes === 0) throw new NotFound("connection", id);
   }

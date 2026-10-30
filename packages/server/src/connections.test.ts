@@ -54,6 +54,34 @@ describe("connections", () => {
     assert.deepEqual([c.target, c.label], ["@2", "reviewer:fable"]);
   });
 
+  it("is taken over, with its texts, by a new window named as its label once it is gone", async () => {
+    const { connections, core, tmux } = setup();
+    const old = await connections.fromPane("%1");
+    const text = core.openText({ connection: old.id }, "commit", { connection: old.id });
+    tmux.panes["%1"]!.state = "gone";
+    tmux.panes["%4"] = { id: "@4", name: "WFC-1145:edit" };
+    const back = await connections.fromPane("%4");
+    assert.equal(back.id, old.id);
+    assert.deepEqual((await connections.list()).map((c) => [c.label, c.target]), [["WFC-1145:edit", "@4"]]);
+    assert.deepEqual(core.getText(text).writer, { connection: old.id });
+  });
+
+  it("gives a second live window of the same name a label of its own", async () => {
+    const { connections, tmux } = setup();
+    await connections.fromPane("%1");
+    tmux.panes["%4"] = { id: "@4", name: "WFC-1145:edit" };
+    const second = await connections.fromPane("%4");
+    assert.equal(second.label, `WFC-1145:edit#${second.id}`);
+  });
+
+  it("relabels the caller's own connection for a label nobody has, rather than adding one", async () => {
+    const { connections } = setup();
+    const own = await connections.fromPane("%2");
+    const c = await connections.reconnectAs("editorial", "%2");
+    assert.equal(c.id, own.id);
+    assert.deepEqual((await connections.list()).map((x) => x.label), ["editorial"]);
+  });
+
   it("offers the agent windows that are not yet connections", async () => {
     const { connections } = setup();
     await connections.fromPane("%1");

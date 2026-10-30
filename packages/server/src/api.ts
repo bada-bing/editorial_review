@@ -219,7 +219,7 @@ export function createApi(core: Core, connections: Connections, scenarios: Scena
     const windowId = c.req.param("id");
     const { state, name } = await connections.tmux.windowState(windowId);
     if (state === "gone" || !name) throw new CoreError("NotFound", `no agent runs in window ${windowId}`);
-    return c.json(connections.forWindow({ id: windowId, name }), 201);
+    return c.json(await connections.forWindow({ id: windowId, name }), 201);
   });
 
   api.get("/scenarios", (c) => c.json(scenarios.list()));

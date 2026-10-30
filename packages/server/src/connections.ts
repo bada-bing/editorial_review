@@ -10,7 +10,9 @@ export interface ConnectionWithState extends Connection {
 /**
  * Connections are standing links to agents in tmux windows. One is established
  * implicitly, by the first request from a pane, and targets the pane's window
- * by id; its label defaults to the window's name.
+ * by id; its label defaults to the window's name, and a label is unique. A
+ * window named as a gone connection's label is that agent back, and takes the
+ * connection over with its texts.
  */
 export class Connections {
   private readonly core: Core;
@@ -24,26 +26,31 @@ export class Connections {
   async fromPane(pane: string): Promise<Connection> {
     const window = await this.tmux.windowOfPane(pane);
     if (!window) throw new CoreError("Invalid", `pane ${pane} is not a tmux pane`);
-    return this.core.findConnection({ target: window.id }) ?? this.create(window);
+    return this.core.findConnection({ target: window.id }) ?? (await this.create(window));
   }
 
   /** The connection for a window picked in the UI, created if it has none. */
-  forWindow(window: Window): Connection {
-    return this.core.findConnection({ target: window.id }) ?? this.create(window);
+  async forWindow(window: Window): Promise<Connection> {
+    return this.core.findConnection({ target: window.id }) ?? (await this.create(window));
   }
 
   /**
    * `editorial connect --as <label>`: the connection with that label now
-   * targets the caller's window, keeping its texts. With no such label, a
-   * new connection with it.
+   * targets the caller's window, keeping its texts. With no such label, the
+   * caller's window takes it: its connection is relabelled, or one is created.
    */
   async reconnectAs(label: string, pane: string): Promise<Connection> {
     const window = await this.tmux.windowOfPane(pane);
     if (!window) throw new CoreError("Invalid", `pane ${pane} is not a tmux pane`);
     const existing = this.core.findConnection({ label });
-    if (!existing) return this.create(window, label);
-    this.core.reconnect(existing.id, window.id);
-    return { ...existing, target: window.id };
+    if (existing) {
+      this.core.reconnect(existing.id, window.id);
+      return { ...existing, target: window.id };
+    }
+    const own = this.core.findConnection({ target: window.id });
+    if (!own) return this.create(window, label);
+    this.core.relabel(own.id, label);
+    return { ...own, label };
   }
 
   /** From the UI: a gone connection re-established on another window. */
@@ -89,8 +96,13 @@ export class Connections {
     return (await this.tmux.agentWindows()).filter((w) => !taken.has(w.id));
   }
 
-  private create(window: Window, label = window.name): Connection {
+  private async create(window: Window, label = window.name): Promise<Connection> {
+    const holder = this.core.findConnection({ label });
+    if (holder && (await this.tmux.windowState(holder.target)).state === "gone") {
+      this.core.reconnect(holder.id, window.id);
+      return { ...holder, target: window.id };
+    }
     const id = this.core.connect(window.id, label);
-    return { id, target: window.id, label };
+    return this.core.findConnection({ target: window.id }) ?? { id, target: window.id, label };
   }
 }

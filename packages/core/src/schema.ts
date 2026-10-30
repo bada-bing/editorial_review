@@ -9,7 +9,7 @@ export const schema = `
 CREATE TABLE IF NOT EXISTS connection (
   id      TEXT PRIMARY KEY,         -- eight hex characters, never reused
   target  TEXT NOT NULL UNIQUE,   -- tmux window id, such as @12
-  label   TEXT NOT NULL           -- defaults to session:window
+  label   TEXT NOT NULL           -- defaults to session:window; unique, by the index below
 );
 
 CREATE TABLE IF NOT EXISTS text (
@@ -65,6 +65,11 @@ CREATE TABLE IF NOT EXISTS comment (
 ALTER TABLE text ADD COLUMN opener_connection_id TEXT REFERENCES connection(id);
 ALTER TABLE comment ADD COLUMN asked_at TEXT;
 ALTER TABLE comment ADD COLUMN answered_at TEXT;
+
+-- A database from before labels were unique: every holder of a label but the first takes its id as a suffix.
+UPDATE connection SET label = label || '#' || id
+WHERE rowid NOT IN (SELECT MIN(rowid) FROM connection GROUP BY label);
+CREATE UNIQUE INDEX IF NOT EXISTS connection_label ON connection (label);
 
 -- The current draft of each text that has one.
 DROP VIEW IF EXISTS text_waits_on;

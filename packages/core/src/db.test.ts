@@ -3,6 +3,11 @@ import { describe, it } from "node:test";
 import { Core } from "./core.ts";
 import { commitXml, structureFor } from "./fixtures.ts";
 import { openDatabase } from "./db.ts";
+import { DatabaseSync } from "node:sqlite";
+import { mkdtempSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { Invalid } from "./errors.ts";
 
 const getState = (db: ReturnType<typeof openDatabase>, id: string) => {
   try { return new Core(db, structureFor).getText(id); } catch { return undefined; }
@@ -73,3 +78,26 @@ describe("text_state", () => {
     assert.equal(getState(db, 't1'), undefined);
   });
 });
+
+describe("connection labels", () => {
+  it("are made unique in a database from before they were, the first holder keeping its label", () => {
+    const path = join(mkdtempSync(join(tmpdir(), "editorial-")), "old.db");
+    const old = new DatabaseSync(path);
+    old.exec("CREATE TABLE connection (id TEXT PRIMARY KEY, target TEXT NOT NULL UNIQUE, label TEXT NOT NULL)");
+    old.exec("INSERT INTO connection VALUES ('aaaaaaaa', '@1', '10x_15:editorial'), ('bbbbbbbb', '@2', '10x_15:editorial')");
+    old.close();
+    const db = openDatabase(path);
+    assert.deepEqual(db.prepare("SELECT id, label FROM connection ORDER BY rowid").all().map((r) => [r["id"], r["label"]]), [["aaaaaaaa", "10x_15:editorial"], ["bbbbbbbb", "10x_15:editorial#bbbbbbbb"]]);
+    assert.throws(() => db.exec("INSERT INTO connection VALUES ('cccccccc', '@3', '10x_15:editorial')"));
+  });
+
+  it("are given a suffix when taken, and refused to a relabel", () => {
+    const core = new Core(openDatabase(":memory:"), structureFor);
+    const a = core.connect("@1", "10x_15:editorial");
+    const b = core.connect("@2", "10x_15:editorial");
+    assert.equal(core.findConnection({ target: "@2" })!.label, `10x_15:editorial#${b}`);
+    assert.throws(() => core.relabel(b, "10x_15:editorial"), Invalid);
+    core.relabel(a, "10x_15:editorial");
+  });
+});
+
